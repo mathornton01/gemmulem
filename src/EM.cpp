@@ -7,12 +7,19 @@
 #include <algorithm>
 #include <assert.h>
 #include <math.h>
+#include <chrono> 
 
 #include "EM.h"
 
 using namespace std; 
+using std::chrono::duration_cast;
+using std::chrono::nanoseconds;
+using std::chrono::milliseconds;
+using std::chrono::seconds;
+using std::chrono::system_clock; 
 
 vector<double> expectationmaximization(struct comppatcounts cpc, struct emsettings ems){
+    int start = duration_cast<nanoseconds>(system_clock::now().time_since_epoch()).count();
     double numtrans = cpc.compatibilityPattern[0].size();
     double numpats = cpc.compatibilityPattern.size();
     vector<double> abdninit; // Initialization vector for the abundance values 
@@ -65,11 +72,13 @@ vector<double> expectationmaximization(struct comppatcounts cpc, struct emsettin
     relerr /= numtrans; 
     relerr = sqrt(relerr);
     if (ems.verbose){
-        cout << "Info: EM-Algorithm, Iteration " << to_string(num_iter) << " Relative Error: " << to_string(relerr) << endl;
+        cout << "INFO: EM - Iteration " << to_string(num_iter) << " Relative Error: " << to_string(relerr) << endl;
     }
     if (relerr <= ems.rtole){
         if (ems.verbose){
-            cout << "Info: EM-Algorith Ran for " << to_string(num_iter) << " iterations" << endl;
+            cout << "INFO: EM - Ran for " << to_string(num_iter) << " iterations" << endl;
+            int end = duration_cast<nanoseconds>(system_clock::now().time_since_epoch()).count();
+            cout << "INFO: EM - Took " << to_string(end-start) << " nanoseconds to run" << endl;
         }
         return(abdn_new);
     }

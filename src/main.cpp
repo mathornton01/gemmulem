@@ -83,21 +83,21 @@ struct emsettings parseargs(int argc, char ** argv){
         } 
     }
     if (infile == "" && sfile == ""){
-        cout << "Error:  Please specify a valid input file. " << endl; 
+        cout << "ERROR:  Please specify a valid input file. " << endl << endl << endl; 
         printusage();
     }
     if (ofile == ""){
         ofile = to_string(int(time(0)))+".abdn.txt";
         if (verbose){
-            cout << "Warning: No Output File Specified, writing to " << ofile << endl;
+            cout << "WARN: No Output File Specified, writing to " << ofile << endl;
         }
     }
     if (rtole < 0){
-        cout << "Warning: Relative tolerance either not specified, or incorrect value, default (0.00001) is being used." << endl;
+        cout << "WARN: Relative tolerance either not specified, or incorrect value, default (0.00001) is being used." << endl;
         rtole = 0.00001;
     }
     if (infile != "" && sfile != ""){
-        cerr << "Error: Please specify one only of -s or -i flags depending on the input type. " << endl; 
+        cerr << "ERROR: Please specify one only of -s or -i flags depending on the input type. " << endl << endl << endl; 
         exit(1);
     }
     ems.ifilename = infile; 
@@ -111,16 +111,25 @@ struct emsettings parseargs(int argc, char ** argv){
 
 int main(int argc, char** argv){
     
-    cout << "Multinomial Coarsened Data EM" << endl << "     Micah Thornton (2022)     " << endl; 
+    cout << "                         (GEMMULEM)                         " << endl <<
+            "      General Mixed Multinomial Expectation Maximization    " << endl << 
+            "                    Micah Thornton (2022)                   " << endl << 
+            "                        [Version 1.0]                       " << endl << endl; 
     
     // Store the user settings for the EM algorithm in the ems structure. 
     struct emsettings ems = parseargs(argc, argv);
     
     if (ems.verbose){
+        cout << "INFO: User Settings - Running GEMMULEM in Verbose Mode (-v)" << endl;
         if (ems.ifilename != ""){
-            cout << "Info: EM - File Input (Pattern File -i), Parsing Input File " << ems.ifilename << "." << endl;
+            if (ifstream(ems.ifilename).is_open()){
+                cout << "INFO: File IO - (Pattern File -i), Parsing Input File " << ems.ifilename << "." << endl;
+            } else {
+                cout << "ERROR: File IO - (" << ems.ifilename << ") Not Found Please specify a different file location." << endl << endl << endl; 
+                exit(1); 
+            }
         } else if (ems.samfilename != ""){
-            cout << "Info: EM - File Input (GENE SAM File -s), Parsing Input File " << ems.samfilename << "." << endl;
+            cout << "INFO: File IO - File Input (GENE SAM File -s), Parsing Input File " << ems.samfilename << "." << endl;
         }
     }
 
@@ -133,8 +142,9 @@ int main(int argc, char** argv){
     }
 
     if (ems.verbose){
+        cout << "INFO: File IO - Found Compatilbility Patterns " << endl;
         for (int i = 0; i < cpc.compatibilityPattern.size(); i++){
-            cout << "Info: EM - File Input, Found Compatilbility Pattern " << to_string(i) << " - " << cpc.compatibilityPattern[i] << " count - " << to_string(cpc.count[i]) << endl; 
+            cout << "INFO:      " << to_string(i) << " - " << cpc.compatibilityPattern[i] << " count - " << to_string(cpc.count[i]) << endl; 
         }
     }
 
@@ -142,10 +152,11 @@ int main(int argc, char** argv){
     vector<double> emabundances = expectationmaximization(cpc,ems);
 
     if (ems.verbose){
+        cout << "INFO: Results - MLE of Proportions" << endl;
         for (int j = 0; j < cpc.compatibilityPattern[0].size(); j++){
-            cout << "Info: EM Algorithm Results: Transcript - " << to_string(j) << " EM count: " << to_string(emabundances[j]) << endl; 
+            cout << "INFO:      " << " Transcript - " << to_string(j) << " EM count: " << to_string(emabundances[j]) << endl; 
         }
-        cout << "Info: EM - File IO, Writing Results to Output File " << ems.ofilename << "." << endl;
+        cout << "INFO: File IO - Writing Results to Output File " << ems.ofilename << "." << endl;
     }
 
     // Write the determined proportions to an output file, or the screen 
@@ -155,6 +166,8 @@ int main(int argc, char** argv){
         return(0);
     }
     writeemres(ems.ofilename,emabundances);
+
+    cout << endl << endl; 
     return(0);
 }
 
@@ -170,7 +183,7 @@ void writeemres(string ofilename, vector<double> abdn){
         ofile << to_string(abdn[i]) << endl;
     }
     // Note, this output should not be masked by verbosity
-    cout << "Info: Output written on " << ofilename << endl;
+    cout << "INFO: Output written on " << ofilename << endl;
     ofile.close();
 }
 struct comppatcounts parseinputfile(string ifilename){
