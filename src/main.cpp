@@ -152,9 +152,11 @@ int main(int argc, char** argv){
     vector<double> emabundances = expectationmaximization(cpc,ems);
 
     if (ems.verbose){
-        cout << "INFO: Results - MLE of Proportions" << endl;
-        for (int j = 0; j < cpc.compatibilityPattern[0].size(); j++){
-            cout << "INFO:      " << " Transcript - " << to_string(j) << " EM count: " << to_string(emabundances[j]) << endl; 
+        if (ems.termcat){
+            cout << "INFO: Results - MLE of Proportions" << endl;
+            for (int j = 0; j < cpc.compatibilityPattern[0].size(); j++){
+                cout << "INFO:      " << " Transcript - " << to_string(j) << " EM count: " << to_string(emabundances[j]) << endl; 
+            }
         }
         cout << "INFO: File IO - Writing Results to Output File " << ems.ofilename << "." << endl;
     }
