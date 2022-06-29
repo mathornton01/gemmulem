@@ -10,5 +10,14 @@ installing and using gemmulem.
 
 ```bash
 git clone https://github.com/mathornton01/gemmulem.git
-cd 
+cd gemmulem
+sudo make install
 ```
+
+This will build the gemmulem application and install the binary in the /bin/ directory. 
+To remove the binary from the /bin/ directory, you can use
+
+```bash
+sudo make uninstall 
+```
+
