@@ -26,6 +26,7 @@ double getNormLH(double value, double mean, double var);
 
 struct gaussianemresults{
     int numGaussians;
+    int iterstaken;
     vector<double> means_init;
     vector<double> vars_init;
     vector<double> probs_init;
@@ -36,8 +37,13 @@ struct gaussianemresults{
 
 int main(int argc, char ** argv){
     cout << to_string(getNormLH(0,0,1)) << endl;
+    srand(0xFEED);
     vector<double> tstvals = readvaluefile("gmm_tst_vals_1.txt");
-    struct gaussianemresults emres = unmixgaussians(tstvals,3,1000,true);
+    int ng = 3;
+    struct gaussianemresults emres = unmixgaussians(tstvals,ng,1000,true);
+    for (int i = 0; i < ng; i++){
+        cout << "Gaussian " << to_string(i) << " Mean Estimate: " << to_string(emres.means_final[i]) << " Var Estimate: " << to_string(emres.vars_final[i]) << " Prob Estimate: " << to_string(emres.probs_final[i]) << endl;
+    }
     return(0);
 }
 
@@ -76,12 +82,12 @@ struct gaussianemresults unmixgaussians(vector<double> values, int numGaussians,
     }
 
     while((!mconv || !vconv || !pconv) && iter <= maxiter){
-        if (verb){
-            cout << "INFO:  EM Iteration - " << to_string(iter) << "  MEAN - " << endl << 
-                    to_string(mcur[0]) << endl << 
-                    to_string(mcur[1]) << endl << 
-                    to_string(mcur[2]) << endl;
-        }
+       // if (verb){
+        //    cout << "INFO:  EM Iteration - " << to_string(iter) << "  MEAN - " << endl << 
+        //            to_string(mcur[0]) << endl << 
+         //           to_string(mcur[1]) << endl << 
+         //           to_string(mcur[2]) << endl;
+        //}
         // Get the Likelihoods 
         vector<double> lhval;
         vector<vector<double>> lhall;
@@ -90,8 +96,8 @@ struct gaussianemresults unmixgaussians(vector<double> values, int numGaussians,
             lhval.clear();
             rowtotal = 0;
             for (int j = 0; j < numGaussians; j++){
-                cout << "Geting Normal LH for: " << to_string(values[i]) << " from: N(" << to_string(mcur[j]) << "," << to_string(vcur[j]) << ") " << endl;
-                cout << "  IT is " << to_string(getNormLH(values[i],mcur[j],vcur[j])*pcur[j]) << endl;
+             //   cout << "Geting Normal LH for: " << to_string(values[i]) << " from: N(" << to_string(mcur[j]) << "," << to_string(vcur[j]) << ") " << endl;
+             //   cout << "  IT is " << to_string(getNormLH(values[i],mcur[j],vcur[j])*pcur[j]) << endl;
                 if (getNormLH(values[i],mcur[j],vcur[j])*pcur[j] != 0) {
                     lhval.push_back(getNormLH(values[i],mcur[j],vcur[j])*pcur[j]);
                     rowtotal+=getNormLH(values[i],mcur[j],vcur[j])*pcur[j];
@@ -101,11 +107,8 @@ struct gaussianemresults unmixgaussians(vector<double> values, int numGaussians,
                     rowtotal+=0.000001;
                 }
                 
-                cout << "   Row Total : " << to_string(rowtotal) << endl;
-                cout << "   LH over Row Total" << to_string(getNormLH(values[i],mcur[j],vcur[j])*pcur[j]/rowtotal);
-                if (j ==2){
-                 //   exit(1);
-                }
+         //       cout << "   Row Total : " << to_string(rowtotal) << endl;
+          //      cout << "   LH over Row Total" << to_string(getNormLH(values[i],mcur[j],vcur[j])*pcur[j]/rowtotal);
             }
             for (int j = 0; j < numGaussians; j++){
                 lhval[j] = lhval[j]/rowtotal;
@@ -113,12 +116,12 @@ struct gaussianemresults unmixgaussians(vector<double> values, int numGaussians,
             lhall.push_back(lhval);
         }
         
-        for (int i = 0; i < values.size(); i++){
-            for (int j = 0; j < numGaussians; j++){
-                cout << lhall[i][j] << " "; 
-            } 
-            cout << endl;
-        }
+     //   for (int i = 0; i < values.size(); i++){
+      //      for (int j = 0; j < numGaussians; j++){
+       //         cout << lhall[i][j] << " "; 
+        //    } 
+         //   cout << endl;
+       // }
         // Generate the new proportion estimates 
         for(int j = 0; j < numGaussians; j++){
             pcur[j] = 0;
@@ -186,7 +189,10 @@ struct gaussianemresults unmixgaussians(vector<double> values, int numGaussians,
 
         iter++;
     }
-
+    retgem.means_final = mcur;
+    retgem.probs_final = pcur;
+    retgem.vars_final = vcur;
+    retgem.iterstaken = iter;
     return(retgem);
 }
 
@@ -212,7 +218,7 @@ struct gaussianemresults randominitgem(vector<double> values, int numGaussians){
         retgem.vars_init.push_back(rnvr);
 
         // Initialize the probabilities as uniform
-        retgem.probs_init.push_back(double(1/numGaussians));
+        retgem.probs_init.push_back(double(1.0L/numGaussians));
     }
     return(retgem);
 }
