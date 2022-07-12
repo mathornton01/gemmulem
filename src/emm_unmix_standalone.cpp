@@ -10,48 +10,56 @@ using namespace std;
 // Function headers 
 vector<double> expectationmaximization(struct comppatcounts, struct emsettings ems);
 vector<double> readvaluefile(string ifilename); 
-struct gaussianemresults unmixgaussians(vector<double> values, int numGaussians, int maxiter, bool verb);
+struct exponentialEMResults unmixexponentials(vector<double> values, int numExponentials, int maxiter, bool verb);
 
-struct gaussianemresults randominitgem(vector<double> values, int numGaussians); 
+struct exponentialEMResults randominiteem(vector<double> values, int numExponentials); 
 
 //TODO: Implement K-Means initialization procedure 
-struct gaussianemresults kmeansinitgem(vector<double> values, int numGaussians);
+struct exponentialEMResults kmeansiniteem(vector<double> values, int numExponentials);
 
 // Some simple utility functions I need.
 double min(vector<double> values);
 double max(vector<double> values);
 double mean(vector<double> values);
 double var(vector<double> values);
-double getNormLH(double value, double mean, double var);
+double getExpoLH(double value, double mean);
 
-struct gaussianemresults{
-    int numGaussians;
+struct exponentialEMResults{
+    int numExponentials;
     int iterstaken;
     vector<double> means_init;
-    vector<double> vars_init;
     vector<double> probs_init;
     vector<double> means_final;
-    vector<double> vars_final;
     vector<double> probs_final;
 };
 
 int main(int argc, char ** argv){
-    cout << to_string(getNormLH(0,0,1)) << endl;
-    srand(0xFEED);
+    cout << to_string(getExpoLH(0,0)) << endl;
+    srand(0xFACE);
 
-    bool tst1 = false; 
+    bool tst1 = true; 
     bool tst2 = false; 
-    bool tst3 = true;
+    bool tst3 = false;
     vector<double> tstvals;
-    struct gaussianemresults emres;
-    int ng = 3;
+    struct exponentialEMResults emres;
+    int ne = 3;
     if(tst1){
-    // gmm_tst_vals_3.txt - means (1.56, 12.43, -22.51), vars (4.10, 18.02, 20.549), probs (0.476, 0.345, 0.179)
-    tstvals = readvaluefile("gmm_tst_vals_3.txt");
-    ng = 3;
-    emres = unmixgaussians(tstvals,ng,1000,true);
-    for (int i = 0; i < ng; i++){
-        cout << "Gaussian " << to_string(i) << " Mean Estimate: " << to_string(emres.means_final[i]) << " Var Estimate: " << to_string(emres.vars_final[i]) << " Prob Estimate: " << to_string(emres.probs_final[i]) << endl;
+    // emm_tst_vals_3.txt - 
+    // > p.tr
+//      [1] 0.5773829 0.1030938 0.3195233
+//     > m.tr
+//      [1]  1.996293  4.503491 19.483168
+// emm_tst_vals_4.txt -
+//> m.tr
+//[1] 20.793552  1.508763  1.786185
+//> p.tr
+//[1] 0.48390723 0.46562914 0.05046363
+
+    tstvals = readvaluefile("emm_tst_vals_4.txt");
+    ne = 3;
+    emres = unmixexponentials(tstvals,ne,1000,true);
+    for (int i = 0; i < ne; i++){
+        cout << "Exponential " << to_string(i) << " Mean Estimate: " << to_string(emres.means_final[i]) << " Prob Estimate: " << to_string(emres.probs_final[i]) << endl;
     }
     }
 
@@ -59,11 +67,11 @@ int main(int argc, char ** argv){
     // gmm_tst_vals_4.txt - means ([1]  -0.03978567  -5.79104219  10.82317081 -22.42147825  23.97086660), 
     //                       vars ([1]   3.985878     2.169658     8.301868     8.199631    15.147265  ), 
     //                      probs ([1]   0.1815995    0.2347567    0.2322382    0.1924087    0.1589970)
-    tstvals = readvaluefile("gmm_tst_vals_4.txt");
-    ng = 5;
-    emres = unmixgaussians(tstvals,ng,1000,true);
-    for (int i = 0; i < ng; i++){
-        cout << "Gaussian " << to_string(i) << " Mean Estimate: " << to_string(emres.means_final[i]) << " Var Estimate: " << to_string(emres.vars_final[i]) << " Prob Estimate: " << to_string(emres.probs_final[i]) << endl;
+    tstvals = readvaluefile("emm_tst_vals_4.txt");
+    ne = 5;
+    emres = unmixexponentials(tstvals,ne,1000,true);
+    for (int i = 0; i < ne; i++){
+        cout << "Gaussian " << to_string(i) << " Mean Estimate: " << to_string(emres.means_final[i]) << " Prob Estimate: " << to_string(emres.probs_final[i]) << endl;
     }
     }
 
@@ -71,12 +79,12 @@ int main(int argc, char ** argv){
     // gmm_tst_vals_5.txt - means ([1]  -7.602595  23.644680  -6.180415 -14.520220   8.800419 -19.425961  17.958428).
     //                       vars ([1]  14.154774   1.380286  16.421753   1.024074  22.598802   1.243414  17.771734).
     //                      probs ([1] 0.20974384 0.08569973 0.21116514 0.05203155 0.20831706 0.08606674 0.14697593)
-    tstvals = readvaluefile("gmm_tst_vals_6.txt");
-    ng = 7;
+    tstvals = readvaluefile("emm_tst_vals_6.txt");
+    ne = 7;
     srand(0XBEEF);
-    emres = unmixgaussians(tstvals,ng,400,true);
-    for (int i = 0; i < ng; i++){
-        cout << "Gaussian " << to_string(i) << " Mean Estimate: " << to_string(emres.means_final[i]) << " Var Estimate: " << to_string(emres.vars_final[i]) << " Prob Estimate: " << to_string(emres.probs_final[i]) << endl;
+    emres = unmixexponentials(tstvals,ne,400,true);
+    for (int i = 0; i < ne; i++){
+        cout << "Gaussian " << to_string(i) << " Mean Estimate: " << to_string(emres.means_final[i]) << " Prob Estimate: " << to_string(emres.probs_final[i]) << endl;
     }
     return(0);
     }
@@ -91,32 +99,28 @@ vector<double> readvaluefile(string ifilename){
     }
     return(inputvalues);
 }
-struct gaussianemresults unmixgaussians(vector<double> values, int numGaussians, int maxiter = 1000, bool verb = false){
+struct exponentialEMResults unmixexponentials(vector<double> values, int numExponentials, int maxiter = 1000, bool verb = false){
     // First we must initialize the parameters. 
     //  I will provide a function for this.  The first function will just initialize them
     //  randomly depending on the value vector.
-    struct gaussianemresults retgem = randominitgem(values,numGaussians); 
+    struct exponentialEMResults reteem = randominiteem(values,numExponentials); 
     bool mconv = false;
-    bool vconv = false;
     bool pconv = false; 
-    vector<double> mcur = retgem.means_init;
+    vector<double> mcur = reteem.means_init;
     vector<double> mprev = mcur; 
-    vector<double> vcur = retgem.vars_init;
-    vector<double> vprev = vcur; 
-    vector<double> pcur = retgem.probs_init;
+    vector<double> pcur = reteem.probs_init;
     vector<double> pprev = pcur; 
     double merr = NULL; 
-    double verr = NULL; 
     double perr = NULL;
     int iter = 1; 
 
     if (verb){
-        cout << "INFO: Gaussian Mixture Deconvolution by Expectation Maximization" << endl; 
-        cout << "INFO:  Number of Gaussians involved in mixture - " << to_string(numGaussians) << endl; 
+        cout << "INFO: Exponential Mixture Deconvolution by Expectation Maximization" << endl; 
+        cout << "INFO:  Number of Exponentials involved in mixture - " << to_string(numExponentials) << endl; 
         cout << "INFO:  Number of Values observed total - " << to_string(values.size()) << endl; 
     }
 
-    while((!mconv || !vconv || !pconv) && iter <= maxiter){
+    while((!mconv || !pconv) && iter <= maxiter){
        // if (verb){
         //    cout << "INFO:  EM Iteration - " << to_string(iter) << "  MEAN - " << endl << 
         //            to_string(mcur[0]) << endl << 
@@ -130,14 +134,14 @@ struct gaussianemresults unmixgaussians(vector<double> values, int numGaussians,
         for (int i = 0; i < values.size(); i++){
             lhval.clear();
             rowtotal = 0;
-            for (int j = 0; j < numGaussians; j++){
-             //   cout << "Geting Normal LH for: " << to_string(values[i]) << " from: N(" << to_string(mcur[j]) << "," << to_string(vcur[j]) << ") " << endl;
-             //   cout << "  IT is " << to_string(getNormLH(values[i],mcur[j],vcur[j])*pcur[j]) << endl;
-                if (getNormLH(values[i],mcur[j],vcur[j])*pcur[j] != 0) {
-                    lhval.push_back(getNormLH(values[i],mcur[j],vcur[j])*pcur[j]);
-                    rowtotal+=getNormLH(values[i],mcur[j],vcur[j])*pcur[j];
+            for (int j = 0; j < numExponentials; j++){
+             //   cout << "Geting Exponential LH for: " << to_string(values[i]) << " from: Exp(" << to_string(mcur[j]) << ") " << endl;
+             //   cout << "  IT is " << to_string(getExpoLH(values[i],mcur[j],vcur[j])*pcur[j]) << endl;
+                if (getExpoLH(values[i],mcur[j])*pcur[j] != 0) {
+                    lhval.push_back(getExpoLH(values[i],mcur[j])*pcur[j]);
+                    rowtotal+=getExpoLH(values[i],mcur[j])*pcur[j];
                 }
-                else if (getNormLH(values[i],mcur[j],vcur[j])*pcur[j] == 0){
+                else if (getExpoLH(values[i],mcur[j])*pcur[j] == 0){
                     lhval.push_back(0.000001);
                     rowtotal+=0.000001;
                 }
@@ -145,7 +149,7 @@ struct gaussianemresults unmixgaussians(vector<double> values, int numGaussians,
          //       cout << "   Row Total : " << to_string(rowtotal) << endl;
           //      cout << "   LH over Row Total" << to_string(getNormLH(values[i],mcur[j],vcur[j])*pcur[j]/rowtotal);
             }
-            for (int j = 0; j < numGaussians; j++){
+            for (int j = 0; j < numExponentials; j++){
                 lhval[j] = lhval[j]/rowtotal;
             }
             lhall.push_back(lhval);
@@ -158,7 +162,7 @@ struct gaussianemresults unmixgaussians(vector<double> values, int numGaussians,
          //   cout << endl;
        // }
         // Generate the new proportion estimates 
-        for(int j = 0; j < numGaussians; j++){
+        for(int j = 0; j < numExponentials; j++){
             pcur[j] = 0;
             for(int i = 0; i < values.size(); i++){
                 pcur[j] += lhall[i][j];
@@ -167,10 +171,10 @@ struct gaussianemresults unmixgaussians(vector<double> values, int numGaussians,
         }
         // Get the error estimate 
         perr = 0;
-        for (int j = 0; j < numGaussians; j++){
+        for (int j = 0; j < numExponentials; j++){
             perr += sqrt(pow(pcur[j]-pprev[j],2));
         }
-        perr /= numGaussians;
+        perr /= numExponentials;
 
         pprev = pcur;
 
@@ -179,7 +183,7 @@ struct gaussianemresults unmixgaussians(vector<double> values, int numGaussians,
 
         // Generate the mean estimates 
         double colsum;
-        for (int j = 0; j < numGaussians; j++){
+        for (int j = 0; j < numExponentials; j++){
             mcur[j] = 0; 
             colsum = 0;
             for (int i = 0; i < values.size(); i++){
@@ -191,71 +195,42 @@ struct gaussianemresults unmixgaussians(vector<double> values, int numGaussians,
 
         // Get the error estimate 
         merr = 0; 
-        for (int j = 0; j < numGaussians; j++){
+        for (int j = 0; j < numExponentials; j++){
             merr += sqrt(pow(mcur[j]-mprev[j],2));
         }
-        merr /= numGaussians;
+        merr /= numExponentials;
 
         mprev = mcur;
 
         mconv = (merr < 0.000001);
 
-
-        // Generate the Variance estimates
-        for (int j = 0; j < numGaussians; j++){
-            vcur[j] = 0;
-            colsum = 0;
-            for (int i = 0; i < values.size(); i++){
-                vcur[j] += lhall[i][j]*(pow(values[i]-mcur[j],2));
-                colsum += lhall[i][j];
-            }
-            vcur[j] /= colsum;
-        }
-
-        verr = 0;
-        for (int j = 0; j < numGaussians; j++){
-            verr += sqrt(pow(vcur[j]-vprev[j],2));
-        }
-        verr /= numGaussians;
-
-        vprev = vcur; 
-
-        vconv = (verr < 0.000001);
-
         iter++;
     }
-    retgem.means_final = mcur;
-    retgem.probs_final = pcur;
-    retgem.vars_final = vcur;
-    retgem.iterstaken = iter;
-    return(retgem);
+    reteem.means_final = mcur;
+    reteem.probs_final = pcur;
+    reteem.iterstaken = iter;
+    return(reteem);
 }
 
-struct gaussianemresults randominitgem(vector<double> values, int numGaussians){
+struct exponentialEMResults randominiteem(vector<double> values, int numExponentials){
     // A function for randomly intializing the starting parameters for the Gaussian mixture problem.
-    struct gaussianemresults retgem;
-    retgem.numGaussians = numGaussians; 
+    struct exponentialEMResults reteem;
+    reteem.numExponentials = numExponentials; 
     double minv = min(values);
     double maxv = max(values); 
     double meanv = mean(values); 
     double varv = var(values); 
-    for (int i = 0; i < numGaussians; i++){
+    for (int i = 0; i < numExponentials; i++){
         // Initialize the means randomly as starting values in the range. 
         int ri = rand() % 10000;
         double rd = double(ri)/double(10000);
         double rnmn = (maxv-minv)*rd + minv;
-        retgem.means_init.push_back(rnmn);
-
-        // Initialize the variances randomly as between 0.8 and 1.2 * the total variance. 
-        ri = rand() % 10000; 
-        rd = double(ri)/double(10000);
-        double rnvr = (varv*0.8-varv*0.4)*rd+varv*0.4;
-        retgem.vars_init.push_back(rnvr);
+        reteem.means_init.push_back(rnmn);
 
         // Initialize the probabilities as uniform
-        retgem.probs_init.push_back(double(1.0L/numGaussians));
+        reteem.probs_init.push_back(double(1.0L/numExponentials));
     }
-    return(retgem);
+    return(reteem);
 }
 
 double min(vector<double> values){
@@ -296,8 +271,11 @@ double var(vector<double> values){
     return(vr);
 }
 
-double getNormLH(double value, double mean, double var){
-    double sd = sqrt(var);
-    double LH = (1/(sd*sqrt(2*3.14159265)))*pow(2.71828182,(-0.5)*pow((value-mean)/sd,2));
-    return(LH);
+double getExpoLH(double value, double mn){
+    if (value < 0){
+        return(0.0);
+    } else {
+        double LH = (1.0/mn)*pow(2.718281,-(1.0/mn)*value);
+        return(LH);
+    }
 }
