@@ -14,6 +14,7 @@ struct emsettings{
     string valfilename;
     string type;
     int kmixt;
+    int maxitr;
     bool verbose = false; 
     bool termcat = false;
     double rtole;

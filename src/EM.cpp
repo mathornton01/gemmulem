@@ -428,7 +428,7 @@ vector<double> expectationmaximization(struct comppatcounts cpc, struct emsettin
     if (ems.verbose){
         cout << "INFO: EM - Iteration " << to_string(num_iter) << " Relative Error: " << to_string(relerr) << endl;
     }
-    if (relerr <= ems.rtole){
+    if (relerr <= ems.rtole || num_iter >= ems.maxitr){
         if (ems.verbose){
             cout << "INFO: EM - Ran for " << to_string(num_iter) << " iterations" << endl;
             int end = duration_cast<nanoseconds>(system_clock::now().time_since_epoch()).count();

@@ -55,6 +55,7 @@ void printusage(){
     cout << "|[-k/-K/--KMIXT] <number of mixture distributions>: with -g/e (default=3) |" << endl;
     cout << "|[-t/-T/--TERMI] Specify display of results in the terminal (not written) |" << endl;
     cout << "|[-c/-C/--CSEED] integer Seed for random number generator (used in init.) |" << endl;
+    cout << "|[-m/-M/--MAXIT] <maximum number of EM iterations> a convergence criteria |" << endl;
     cout << "|                                                                         |" << endl;  
     cout << "|Note: Both -g/e and -i may not be simultaneously specified               |" << endl;  
     cout << "|                                                                         |" << endl; 
@@ -86,6 +87,7 @@ struct emsettings parseargs(int argc, char ** argv){
     int seed; 
     double rtole = -1; 
     int kmixt = 3;
+    int maxitr = 1000;
     struct emsettings ems; 
     bool verbose = false; 
     bool termcat = false;
@@ -119,6 +121,8 @@ struct emsettings parseargs(int argc, char ** argv){
             termcat = true;
         } else if (string(argv[i]) == "-c" | string(argv[i]) == "-C" | string(argv[i]) == "--CSEED"){
             srand(stoi(string(argv[i+1])));
+        } else if (string(argv[i]) == "-m" | string(argv[i]) == "-M" | string(argv[i]) == "--MAXIT"){
+            maxitr = stoi(string(argv[i+1]));
         }
     }
     if (infile == "" && sfile == "" && gfile == "" && efile == ""){
@@ -153,6 +157,7 @@ struct emsettings parseargs(int argc, char ** argv){
     ems.samfilename = sfile;
     ems.kmixt = kmixt;
     ems.rtole = rtole; 
+    ems.maxitr = maxitr;
     ems.verbose = verbose;
     ems.termcat =termcat; 
     return(ems); 
@@ -233,7 +238,7 @@ int main(int argc, char** argv){
         cout << "INFO: User Settings - Running GEMMULEM in Univariate Gaussian Deconvolution Mode, reading univariate normal values. " << endl;
         cout << "INFO: File IO - " << to_string(umv.size()) << " values read from file. " << endl;
        }
-       struct gaussianemresults ger = unmixgaussians(umv, ems.kmixt, 1000, ems.verbose,ems.rtole);
+       struct gaussianemresults ger = unmixgaussians(umv, ems.kmixt, ems.maxitr, ems.verbose,ems.rtole);
        if (ems.verbose){
         cout << "INFO: EM Algorithm - Gaussians Unmixed in " << to_string(ger.iterstaken) << " Iterations of EM. " << endl;
        }
@@ -258,7 +263,7 @@ int main(int argc, char** argv){
         cout << "INFO: User Settings - Running GEMMULEM in Univariate Exponential Deconvolution Mode, reading univariate normal values. " << endl;
         cout << "INFO: File IO - " << to_string(umv.size()) << " values read from file. " << endl;
        }
-       struct exponentialEMResults eer = unmixexponentials(umv, ems.kmixt, 1000, ems.verbose, ems.rtole);
+       struct exponentialEMResults eer = unmixexponentials(umv, ems.kmixt, ems.maxitr, ems.verbose, ems.rtole);
        //struct gaussianemresults ger = unmixgaussians(umv, ems.kmixt, 1000, ems.verbose);
        if (ems.verbose){
         cout << "INFO: EM Algorithm - Exponentials Unmixed in " << to_string(eer.iterstaken) << " Iterations of EM. " << endl;
