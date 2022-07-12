@@ -44,7 +44,7 @@ struct comppatcounts{
 
 vector<double> expectationmaximization(struct comppatcounts cpc, struct emsettings ems);
 // Function headers 
-struct gaussianemresults unmixgaussians(vector<double> values, int numGaussians, int maxiter = 1000, bool verb = false);
+struct gaussianemresults unmixgaussians(vector<double> values, int numGaussians, int maxiter = 1000, bool verb = false, double rtole=0.000001);
 
 struct gaussianemresults randominitgem(std::vector<double> values, int numGaussians); 
 
@@ -54,7 +54,7 @@ struct gaussianemresults kmeansinitgem(std::vector<double> values, int numGaussi
 // Function headers 
 
 vector<double> readvaluefile(string ifilename); 
-struct exponentialEMResults unmixexponentials(vector<double> values, int numExponentials, int maxiter, bool verb);
+struct exponentialEMResults unmixexponentials(vector<double> values, int numExponentials, int maxiter, bool verb, double rtole=0.000001);
 
 struct exponentialEMResults randominiteem(vector<double> values, int numExponentials); 
 

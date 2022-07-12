@@ -19,7 +19,7 @@ using std::chrono::seconds;
 using std::chrono::system_clock; 
 
 
-struct gaussianemresults unmixgaussians(vector<double> values, int numGaussians, int maxiter, bool verb){
+struct gaussianemresults unmixgaussians(vector<double> values, int numGaussians, int maxiter, bool verb, double rtole){
     // First we must initialize the parameters. 
     //  I will provide a function for this.  The first function will just initialize them
     //  randomly depending on the value vector.
@@ -104,7 +104,7 @@ struct gaussianemresults unmixgaussians(vector<double> values, int numGaussians,
 
         pprev = pcur;
 
-        pconv = (perr < 0.000001);
+        pconv = (perr < rtole);
 
 
         // Generate the mean estimates 
@@ -128,7 +128,7 @@ struct gaussianemresults unmixgaussians(vector<double> values, int numGaussians,
 
         mprev = mcur;
 
-        mconv = (merr < 0.000001);
+        mconv = (merr < rtole);
 
 
         // Generate the Variance estimates
@@ -150,7 +150,7 @@ struct gaussianemresults unmixgaussians(vector<double> values, int numGaussians,
 
         vprev = vcur; 
 
-        vconv = (verr < 0.000001);
+        vconv = (verr < rtole);
 
         iter++;
     }
@@ -231,7 +231,7 @@ double getNormLH(double value, double mean, double var){
     double LH = (1/(sd*sqrt(2*3.14159265)))*pow(2.71828182,(-0.5)*pow((value-mean)/sd,2));
     return(LH);
 }
-struct exponentialEMResults unmixexponentials(vector<double> values, int numExponentials, int maxiter = 1000, bool verb = false){
+struct exponentialEMResults unmixexponentials(vector<double> values, int numExponentials, int maxiter = 1000, bool verb = false, double rtole){
     // First we must initialize the parameters. 
     //  I will provide a function for this.  The first function will just initialize them
     //  randomly depending on the value vector.
@@ -253,9 +253,9 @@ struct exponentialEMResults unmixexponentials(vector<double> values, int numExpo
     }
 
     while((!mconv || !pconv) && iter <= maxiter){
-       // if (verb){
-        //    cout << "INFO:  EM Iteration - " << to_string(iter) << "  MEAN - " << endl << 
-        //            to_string(mcur[0]) << endl << 
+        if (verb){
+            cout << "INFO:  EM Iteration - " << to_string(iter) << " | Rel. Error Mean = " << to_string(merr) << " | Rel. Error Props = " << to_string(perr) << endl;// << "  MEAN - " << endl << 
+        }//            to_string(mcur[0]) << endl << 
          //           to_string(mcur[1]) << endl << 
          //           to_string(mcur[2]) << endl;
         //}
@@ -310,7 +310,7 @@ struct exponentialEMResults unmixexponentials(vector<double> values, int numExpo
 
         pprev = pcur;
 
-        pconv = (perr < 0.000001);
+        pconv = (perr < rtole);
 
 
         // Generate the mean estimates 
@@ -334,7 +334,7 @@ struct exponentialEMResults unmixexponentials(vector<double> values, int numExpo
 
         mprev = mcur;
 
-        mconv = (merr < 0.000001);
+        mconv = (merr < rtole);
 
         iter++;
     }

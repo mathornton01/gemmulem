@@ -48,14 +48,15 @@ void printusage(){
     cout << "|[-i/-I/--IFILE] <input filename>: Specify Input (CSV: \"pattern,count\")   |" << endl; 
     cout << "|[-o/-O/--OFILE] <output filename>: Specify output (\"Proportions\")        |" << endl;
     cout << "|[-r/-R/--RTOLE] <relative tolerance>: Specify EM Stopping Criteria       |" << endl;
-    cout << "|[-s/-S/--SFILE] <input samfilename>: Specify either one of -i, -s, -g, -e|" << endl;
-    cout << "|[-g/-G/--GFILE] <input valfilename>: Specify either one of -i, -s, -g, -e|" << endl;
-    cout << "|[-e/-E/--EFILE] <input valfilename>: Specify either one of -i, -s, -g, -e|" << endl;
+    // cout << "|[-s/-S/--SFILE] <input samfilename>: Specify either one of -i, -s, -g, -e|" << endl; // For now we will hide this option, it may return in Version 3.0.
+    cout << "|[-g/-G/--GFILE] <input valfilename>: Specify either one of -i, -g, -e    |" << endl;
+    cout << "|[-e/-E/--EFILE] <input valfilename>: Specify either one of -i, -g, -e    |" << endl;
     cout << "|[-v/-V/--VERBO] Specify display of status and info messages (verbosity)  |" << endl;
     cout << "|[-k/-K/--KMIXT] <number of mixture distributions>: with -g/e (default=3) |" << endl;
     cout << "|[-t/-T/--TERMI] Specify display of results in the terminal (not written) |" << endl;
+    cout << "|[-c/-C/--CSEED] integer Seed for random number generator (used in init.) |" << endl;
     cout << "|                                                                         |" << endl;  
-    cout << "|Note: Both -s and -i may not be simultaneously specified                 |" << endl;  
+    cout << "|Note: Both -g/e and -i may not be simultaneously specified               |" << endl;  
     cout << "|                                                                         |" << endl; 
     cout << "|File Types and Modes of Running:                                         |" << endl; 
     cout << "|                                                                         |" << endl; 
@@ -82,6 +83,7 @@ struct emsettings parseargs(int argc, char ** argv){
     string gfile = "";
     string efile = "";
     string runtype = "";
+    int seed; 
     double rtole = -1; 
     int kmixt = 3;
     struct emsettings ems; 
@@ -97,13 +99,13 @@ struct emsettings parseargs(int argc, char ** argv){
         } else if (string(argv[i]) == "-r" | string(argv[i]) == "-R" | string(argv[i]) == "--RTOLE"){
             rtole = stod(argv[i+1]);
         } else if (string(argv[i]) == "-s" | string(argv[i]) == "-S" | string(argv[i]) == "--SFILE"){
-            sfile = argv[i+1];
+            sfile = string(argv[i+1]);
             runtype = "MN";
         } else if (string(argv[i]) == "-g" | string(argv[i]) == "-G" | string(argv[i]) == "--GFILE"){
-            gfile = argv[i+1];
+            gfile = string(argv[i+1]);
             runtype = "GM";
         } else if (string(argv[i]) == "-e" | string(argv[i]) == "-E" | string(argv[i]) == "--EFILE"){
-            efile = argv[i+1];
+            efile = string(argv[i+1]);
             runtype = "EM";
         } else if (string(argv[i]) == "-k" | string(argv[i]) == "-K" | string(argv[i]) == "--KMIXT"){
             kmixt = stoi(string(argv[i+1]));
@@ -115,7 +117,9 @@ struct emsettings parseargs(int argc, char ** argv){
             verbose = true;
         } else if (string(argv[i]) == "-t" | string(argv[i]) == "-T" | string(argv[i]) == "--TERMI"){
             termcat = true;
-        } 
+        } else if (string(argv[i]) == "-c" | string(argv[i]) == "-C" | string(argv[i]) == "--CSEED"){
+            srand(stoi(string(argv[i+1])));
+        }
     }
     if (infile == "" && sfile == "" && gfile == "" && efile == ""){
         cout << "ERROR:  Please specify a valid input file. " << endl << endl << endl; 
@@ -229,7 +233,7 @@ int main(int argc, char** argv){
         cout << "INFO: User Settings - Running GEMMULEM in Univariate Gaussian Deconvolution Mode, reading univariate normal values. " << endl;
         cout << "INFO: File IO - " << to_string(umv.size()) << " values read from file. " << endl;
        }
-       struct gaussianemresults ger = unmixgaussians(umv, ems.kmixt, 1000, ems.verbose);
+       struct gaussianemresults ger = unmixgaussians(umv, ems.kmixt, 1000, ems.verbose,ems.rtole);
        if (ems.verbose){
         cout << "INFO: EM Algorithm - Gaussians Unmixed in " << to_string(ger.iterstaken) << " Iterations of EM. " << endl;
        }
@@ -250,9 +254,30 @@ int main(int argc, char** argv){
        cout << "INFO: File IO - Output written on " << ems.ofilename << endl;
 
     } else if (ems.type == "EM") {
-    if (ems.verbose){
-        cout << "INFO: User Settings - Running GEMMULEM in Univariate Exponential Deconvolution Mode, reading univariate exponential values. " << endl;
+       if (ems.verbose){
+        cout << "INFO: User Settings - Running GEMMULEM in Univariate Exponential Deconvolution Mode, reading univariate normal values. " << endl;
+        cout << "INFO: File IO - " << to_string(umv.size()) << " values read from file. " << endl;
        }
+       struct exponentialEMResults eer = unmixexponentials(umv, ems.kmixt, 1000, ems.verbose, ems.rtole);
+       //struct gaussianemresults ger = unmixgaussians(umv, ems.kmixt, 1000, ems.verbose);
+       if (ems.verbose){
+        cout << "INFO: EM Algorithm - Exponentials Unmixed in " << to_string(eer.iterstaken) << " Iterations of EM. " << endl;
+       }
+       ofstream ofile(ems.ofilename);
+       string oline;
+       for (int i = 0; i < eer.means_final.size(); i++){
+        oline = to_string(eer.means_final[i]) + ","  + to_string(eer.probs_final[i]);
+        ofile << oline << endl;
+       }
+       if (ems.termcat){
+
+       for (int i = 0; i < eer.means_final.size(); i++){
+        oline = to_string(eer.means_final[i])  + "," + to_string(eer.probs_final[i]);
+        cout << "INFO:  Results - " << oline << endl;
+       }
+       }
+       ofile.close();
+       cout << "INFO: File IO - Output written on " << ems.ofilename << endl;
     }
 }
 
