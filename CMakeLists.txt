@@ -9,7 +9,7 @@ endif()
 
 add_library(em
         STATIC
-        src/EM.cpp)
+        src/EM.c)
 
 add_executable(gemmulem
         src/main.cpp

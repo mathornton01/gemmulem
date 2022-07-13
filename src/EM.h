@@ -1,74 +1,125 @@
 #ifndef __EM_H__
 #define __EM_H__
 
-#include <vector>
-#include <string>
 
-using namespace std;
+#ifdef __cplusplus
+extern "C"
+{
+#endif
 
-// structures 
-struct emsettings{
-    string ifilename; 
-    string ofilename;
-    string samfilename;
-    string valfilename;
-    string type;
-    int kmixt;
-    int maxitr;
-    bool verbose = false; 
-    bool termcat = false;
+struct EMCompatCount {
+    size_t NumPattern; // num of rows
+    size_t NumCategory; // num of columns
+    int* Counts;
+    char* CompatPattern; // compatibilty matrix
+};
+typedef struct EMCompatCount EMCompatCount_t;
+
+struct EMConfig {
+    int verbose;
+    int maxiter;
     double rtole;
 };
-struct gaussianemresults{
+typedef struct EMConfig EMConfig_t;
+
+struct EMResult {
+    // Array of expectations
+    size_t size;
+    double *values;
+};
+typedef struct EMResult EMResult_t;
+
+struct EMResultGaussian {
     int numGaussians;
     int iterstaken;
-    vector<double> means_init;
-    vector<double> vars_init;
-    vector<double> probs_init;
-    vector<double> means_final;
-    vector<double> vars_final;
-    vector<double> probs_final;
+    double* means_init;
+    double* vars_init;
+    double* probs_init;
+    double* means_final;
+    double* vars_final;
+    double* probs_final;
 };
-struct exponentialEMResults{
+typedef struct EMResultGaussian EMResultGaussian_t;
+
+struct EMResultExponential {
     int numExponentials;
     int iterstaken;
-    vector<double> means_init;
-    vector<double> probs_init;
-    vector<double> means_final;
-    vector<double> probs_final;
+    double* means_init;
+    double* probs_init;
+    double* means_final;
+    double* probs_final;
 };
+typedef struct EMResultExponential EMResultExponential_t;
 
-struct comppatcounts{
-    std::vector<string> compatibilityPattern;
-    std::vector<int> count;
-};
+/**
+ * Run ExpectationMaximization
+ *
+ * @param CompatCountPtr
+ * @param ResultPtr
+ * @param ConfigPtr
+ * @return
+ */
+int ExpectationMaximization(EMCompatCount_t* CompatCountPtr, EMResult_t* ResultPtr, EMConfig_t* ConfigPtr);
 
-vector<double> expectationmaximization(struct comppatcounts cpc, struct emsettings ems);
-// Function headers 
-struct gaussianemresults unmixgaussians(vector<double> values, int numGaussians, int maxiter = 1000, bool verb = false, double rtole=0.000001);
-
-struct gaussianemresults randominitgem(std::vector<double> values, int numGaussians); 
-
-//TODO: Implement K-Means initialization procedure 
-struct gaussianemresults kmeansinitgem(std::vector<double> values, int numGaussians);
 
 // Function headers 
-
-vector<double> readvaluefile(string ifilename); 
-struct exponentialEMResults unmixexponentials(vector<double> values, int numExponentials, int maxiter, bool verb, double rtole=0.000001);
-
-struct exponentialEMResults randominiteem(vector<double> values, int numExponentials); 
+/**
+ * Run EM algorithms for Gaussian
+ *
+ * @param ValuePtr
+ * @param Size
+ * @param NumGaussians
+ * @param ResultPtr
+ * @param ConfigPtr
+ * @return
+ */
+int UnmixGaussians(const double* ValuePtr, size_t Size, int NumGaussians, EMResultGaussian_t* ResultPtr, EMConfig_t* ConfigPtr);
 
 //TODO: Implement K-Means initialization procedure 
-struct exponentialEMResults kmeansiniteem(vector<double> values, int numExponentials);
+//struct gaussianemresults kmeansinitgem(std::vector<double> values, int numGaussians);
+
+// Function headers 
+
+/**
+ * Run EM algorithms for Exponential
+ *
+ * @param ValuePtr
+ * @param Size
+ * @param NumExponentials
+ * @param ResultPtr
+ * @param ConfigPtr
+ * @return
+ */
+int UnmixExponentials(const double* ValuePtr, size_t Size, int NumExponentials, EMResultExponential_t* ResultPtr, EMConfig_t* ConfigPtr);
 
 
-// Some simple utility functions I need.
-double min(std::vector<double> values);
-double max(std::vector<double> values);
-double mean(std::vector<double> values);
-double var(std::vector<double> values);
-double getNormLH(double value, double mean, double var);
-double getExpoLH(double value, double mn);
+//TODO: Implement K-Means initialization procedure 
+//struct exponentialEMResults kmeansiniteem(vector<double> values, int numExponentials);
+
+
+
+// Utility functions
+/**
+ * Release resources used in EMResult_t
+ * @param ResultPtr
+ *
+ */
+void ReleaseEMResult(EMResult_t* ResultPtr);
+
+/**
+ * Release resources used in EMResultGaussian_t
+ * @param ResultPtr
+ */
+void ReleaseEMResultGaussian(EMResultGaussian_t* ResultPtr);
+
+/**
+ * Release resources used in EMResultExponentioal_t
+ * @param ResultPtr
+ */
+void ReleaseEMResultExponential(EMResultExponential_t* ResultPtr);
+
+#ifdef __cplusplus
+}
+#endif // __cplusplus
 
 #endif /* __EM_H__ */

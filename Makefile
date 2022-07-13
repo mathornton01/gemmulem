@@ -1,9 +1,9 @@
-bld/gemmulem: src/EM.cpp src/main.cpp src/EM.h
+bld/gemmulem: src/EM.c src/main.cpp src/EM.h
 	@if [ ! -d "bld" ]; \
 	then \
 		mkdir bld; \
 	fi; \
-	g++ -O3 -o gemmulem src/EM.cpp src/main.cpp; \
+	g++ -std=c++11 -O3 -o gemmulem src/EM.c src/main.cpp; \
 	mv gemmulem bld
 
 clean: bld 
