@@ -9,10 +9,14 @@ endif()
 
 add_library(em
         STATIC
-        src/EM.c)
+        src/lib/EM.c)
 
 add_executable(gemmulem
         src/main.cpp
+        )
+
+target_include_directories(gemmulem PUBLIC
+        src/lib
         )
 
 target_link_libraries(gemmulem em)
@@ -22,5 +26,5 @@ target_link_libraries(gemmulem em)
 install(TARGETS gemmulem DESTINATION bin)
 
 install(TARGETS em DESTINATION lib)
-install(FILES src/EM.h DESTINATION include)
+install(FILES src/lib/EM.h DESTINATION include)
 
