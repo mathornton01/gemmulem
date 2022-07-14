@@ -7,24 +7,18 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-add_library(em
-        STATIC
-        src/lib/EM.c)
+add_subdirectory(src/lib)
 
 add_executable(gemmulem
         src/main.cpp
         )
 
 target_include_directories(gemmulem PUBLIC
-        src/lib
+        "${PROJECT_SOURCE_DIR}/src/lib"
         )
 
 target_link_libraries(gemmulem em)
 
-
 # install target
 install(TARGETS gemmulem DESTINATION bin)
-
-install(TARGETS em DESTINATION lib)
-install(FILES src/lib/EM.h DESTINATION include)
 
