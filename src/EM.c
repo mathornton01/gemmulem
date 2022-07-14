@@ -430,6 +430,8 @@ int UnmixExponentials(const double* ValuePtr, size_t Size, int NumExponentials, 
     ResultPtr->means_init = mcur;
     ResultPtr->means_final = mprev;
 
+    free(lhall);
+
     return 0;
 
 }
