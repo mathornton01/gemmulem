@@ -17,8 +17,9 @@
  * along with GEMMULEM.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <stdarg.h>
+#define PY_SSIZE_T_CLEAN
 #include <Python.h>
+#include <stdarg.h>
 
 #include "EM.h"
 
@@ -329,7 +330,7 @@ static PyObject* pygemmulem_unmixgaussians(PyObject* self, PyObject* args)
     return NULL;
 }
 
-static PyMethodDef myMethods[] = {
+static PyMethodDef pygemmulem_method[] = {
 #if 0
 	/* Initialize APIs */
 	{"get_options", ht2py_get_options, METH_NOARGS, "Get default options"},
@@ -353,8 +354,16 @@ static PyMethodDef myMethods[] = {
 };
 
 
+static struct PyModuleDef pygemmulem_module = {
+    PyModuleDef_HEAD_INIT,
+    "gemmulem",
+    NULL,
+    -1,
+    pygemmulem_method
+};
+
 PyMODINIT_FUNC
-init_pygemmulem(void)
+PyInit_gemmulem(void)
 {
-	(void)Py_InitModule("gemmulem", myMethods);
+    return PyModule_Create(&pygemmulem_module);
 }
