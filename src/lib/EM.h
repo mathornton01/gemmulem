@@ -113,7 +113,7 @@ void ReleaseEMResult(EMResult_t* ResultPtr);
 void ReleaseEMResultGaussian(EMResultGaussian_t* ResultPtr);
 
 /**
- * Release resources used in EMResultExponentioal_t
+ * Release resources used in EMResultExponential_t
  * @param ResultPtr
  */
 void ReleaseEMResultExponential(EMResultExponential_t* ResultPtr);

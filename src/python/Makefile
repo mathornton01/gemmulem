@@ -22,11 +22,11 @@ lib:
 	ARCHFLAGS="-arch x86_64" python ./setup.py build
 
 install:
-	python ./setup.py install
+	python ./setup.py install --install-lib ./
 
 clean:
 	python ./setup.py clean
-	rm -rf build test
+	rm -rf build test *.so *.egg-info
 
 test: lib
 	python ./ht2example.py

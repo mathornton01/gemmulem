@@ -21,13 +21,13 @@
 
 from distutils.core import setup, Extension
 
-module1 = Extension('gemmulem',
+module1 = Extension('pygemmulem',
 #                    define_macros = [('DEBUG', '1')],
                     include_dirs=['../lib'],
 #                    libraries=['stdc++'],
                     extra_objects = ['../../build/src/lib/libem.a'],
                     sources = ['pygemmulem.c'])
 
-setup(name = 'gemmulem',
+setup(name = 'pygemmulem',
         version = '1.0',
         ext_modules = [module1])

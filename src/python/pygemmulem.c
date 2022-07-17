@@ -23,331 +23,354 @@
 
 #include "EM.h"
 
-#define HT2_HANDLE_ID "handle"
-
 #ifdef DEBUG
 #define DEBUGLOG(fmt, ...) do { fprintf(stderr, "%s:%d:%s(): " fmt, __FILE__, __LINE__, __func__, ##__VA_ARGS__);  } while(0) 
 #else
 #define DEBUGLOG(fmt, ...) 
 #endif
 
-#if 0
-static ht2_handle_t get_handle(PyObject *cap)
+/**
+ * create double array.array with length.
+ * 
+ */
+static PyObject* create_darray_object(size_t length)
 {
-	return PyCapsule_GetPointer(cap, HT2_HANDLE_ID);
-}
+    const char* array_func_name = "array";
 
-static PyObject *conv_refnames_result(struct ht2_index_getrefnames_result *result)
-{
-    PyObject *refnames = NULL;
-    size_t i = 0;
+    PyObject* pArrayModule = PyImport_ImportModule("array");
+    PyObject* pValue = NULL;
 
-    if(result == NULL) {
+    if (!pArrayModule) {
+        DEBUGLOG("Can't load array module\n");
         return NULL;
     }
 
-    refnames = PyList_New(result->count);
-    for(i = 0; i < result->count; i++) {
-        PyObject *str = PyString_FromString(result->names[i]);
-        PyList_SetItem(refnames, i, str);
-    }
+    // get array class constructor
+    PyObject* pArrayClass = PyObject_GetAttrString(pArrayModule, array_func_name);
 
-    return refnames;
-}
+    if (pArrayClass && PyCallable_Check(pArrayClass)) {
+        PyObject* pDummyList = PyList_New(length);
+        PyObject* pZero = PyFloat_FromDouble(0.0);
+        for(size_t i = 0; i < length; i++) {
+            PyList_SET_ITEM(pDummyList, i, pZero);
+        }
 
-static PyObject *conv_repeat_expand_result(struct ht2_repeat_expand_result *result)
-{
-    PyObject *positions = NULL;
-    size_t i = 0;
+        PyObject* pArgs = PyTuple_New(2);
+        PyTuple_SetItem(pArgs, 0, PyUnicode_FromString("d"));
+        PyTuple_SetItem(pArgs, 1, pDummyList);
 
-    if(result == NULL) {
-        return NULL;
-    }
+        pValue = PyObject_CallObject(pArrayClass, pArgs);
 
-    positions = PyList_New(result->count);
-    for(i = 0; i < result->count; i++) {
-        struct ht2_position *htpos = &result->positions[i];
+        if (pValue == NULL) {
+            PyErr_Print();
+        }
 
-        PyList_SetItem(positions, i, 
-                Py_BuildValue("(III)", htpos->chr_id, htpos->direction, htpos->pos)
-                );
-    }
-
-    return positions;
-}
-
-
-static PyObject *conv_ht2opt(ht2_option_t *opts)
-{
-	PyObject *py_opt = NULL;
-
-	py_opt = PyDict_New();
-	if(py_opt == NULL) {
-		return NULL;
-	}
-#define HT2_OPT_BUILD(_pobj, _popt, _name, _type) \
-	do {\
-		if(PyDict_SetItemString((_pobj), #_name, Py_BuildValue((_type), (_popt)->_name)) < 0) {\
-			DEBUGLOG("Can't set item %s\n", #_name);\
-		} \
-	} while(0)
-
-
-	HT2_OPT_BUILD(py_opt, opts, offRate, "i");
-	HT2_OPT_BUILD(py_opt, opts, useMm, "i");
-	HT2_OPT_BUILD(py_opt, opts, useShmem, "i");
-	HT2_OPT_BUILD(py_opt, opts, mmSweep, "i");
-	HT2_OPT_BUILD(py_opt, opts, noRefNames, "i");
-	HT2_OPT_BUILD(py_opt, opts, noSplicedAlignment, "i");
-	HT2_OPT_BUILD(py_opt, opts, gVerbose, "i");
-	HT2_OPT_BUILD(py_opt, opts, startVerbose, "i");
-	HT2_OPT_BUILD(py_opt, opts, sanityCheck, "i");
-	HT2_OPT_BUILD(py_opt, opts, useHaplotype, "i");
-
-	return py_opt;
-}
-
-static void update_ht2_options(ht2_option_t *ht2opt, PyObject *py_opt)
-{
-#define HT2_OPT_UPDATE(_pobj, _ht2opt, _name) \
-	do {\
-		PyObject *p;\
-		if((p = PyDict_GetItemString((_pobj), #_name)) != NULL) { \
-			(_ht2opt)->_name = PyInt_AsLong(p); \
-			DEBUGLOG(#_name " %d\n", (ht2opt)->_name); \
-			if(PyErr_Occurred() != NULL) { \
-				DEBUGLOG("Error Occurred"); \
-			}\
-		}\
-	} while (0)
-
-	HT2_OPT_UPDATE(py_opt, ht2opt, offRate);
-	HT2_OPT_UPDATE(py_opt, ht2opt, useMm);
-	HT2_OPT_UPDATE(py_opt, ht2opt, mmSweep);
-	HT2_OPT_UPDATE(py_opt, ht2opt, noRefNames);
-	HT2_OPT_UPDATE(py_opt, ht2opt, noSplicedAlignment);
-	HT2_OPT_UPDATE(py_opt, ht2opt, gVerbose);
-	HT2_OPT_UPDATE(py_opt, ht2opt, startVerbose);
-	HT2_OPT_UPDATE(py_opt, ht2opt, sanityCheck);
-	HT2_OPT_UPDATE(py_opt, ht2opt, useHaplotype);
-
-}
-
-static PyObject *ht2py_get_options(PyObject *self, PyObject *args)
-{
-	ht2_option_t ht2opt;
-
-	ht2_init_options(&ht2opt);
-
-
-	/* convert ht2_option_t to PyObject(map) */
-
-	PyObject *pobj = conv_ht2opt(&ht2opt);
-
-	return pobj;
-}
-
-static PyObject *ht2py_init(PyObject *self, PyObject *args)
-{
-	ht2_handle_t handle;
-	PyObject *popt = NULL;
-	char *name = NULL;
-
-	if(!PyArg_ParseTuple(args, "sO", &name, &popt)) {
-		return NULL;
-	}
-
-	DEBUGLOG("name %s\n", name);
-	DEBUGLOG("popt %p\n", popt);
-
-	if(!PyDict_CheckExact(popt)) {
-		// TODO
-		// exception
-		DEBUGLOG("Invalid data type\n");
-		return NULL;
-	}
-
-	ht2_option_t ht2opt;
-	ht2_init_options(&ht2opt);
-	update_ht2_options(&ht2opt, popt);
-
-	handle = ht2_init(name, &ht2opt);
-
-	DEBUGLOG("handle %p\n", handle);
-
-	PyObject *cap = PyCapsule_New(handle, HT2_HANDLE_ID, NULL);
-
-	return cap;
-}
-
-static PyObject *ht2py_close(PyObject *self, PyObject *args)
-{
-	ht2_handle_t handle;
-    PyObject *cap;
-
-    // Parse Args
-    // ht2py.close(handle)
-    //
-	if(!PyArg_ParseTuple(args, "O", &cap)) {
-		DEBUGLOG("Can't parse args\n");
-		return NULL;
-	}
-
-	handle = get_handle(cap);
-	if(handle == NULL) {
-		DEBUGLOG("Can't get handle\n");
-		return NULL;
-	}
-
-	DEBUGLOG("handle %p\n", handle);
-
-	ht2_close(handle);
-
-	Py_RETURN_NONE;
-}
-
-
-static PyObject *ht2py_index_getrefnamebyid(PyObject *self, PyObject *args)
-{
-    PyObject *cap;
-    uint32_t chr_id;
-
-    // ht2py.index_getrefnamebyid(handle, chr_id)
-
-    if(!PyArg_ParseTuple(args, "Oi", &cap, &chr_id)) {
-		DEBUGLOG("Can't parse args\n");
-		return NULL;
-    }
-
-	ht2_handle_t handle = get_handle(cap);
-	if(handle == NULL) {
-		DEBUGLOG("Can't get handle\n");
-		return NULL;
-	}
-
-    const char *refname = ht2_index_getrefnamebyid(handle, chr_id);
-
-    if(refname == NULL) {
-		DEBUGLOG("Can't get refname(%u)\n", chr_id);
-        return Py_BuildValue("s", "");
-    }
-
-    return Py_BuildValue("s", refname);
-}
-
-static PyObject *ht2py_index_getrefnames(PyObject *self, PyObject *args)
-{
-    ht2_handle_t handle;
-    PyObject *cap;
-
-    // Parse Args
-    // ht2py.index_getrefnames(handle)
-    if(!PyArg_ParseTuple(args, "O", &cap)) {
-		DEBUGLOG("Can't parse args\n");
-        return NULL;
-    }
-
-    handle = get_handle(cap);
-    if(handle == NULL) {
-		DEBUGLOG("Can't get handle\n");
-        return NULL;
-    }
-
-
-    struct ht2_index_getrefnames_result *result = NULL;
-    ht2_error_t ret = ht2_index_getrefnames(handle, &result);
-
-    PyObject *refnames = NULL;
-    
-    if(ret == HT2_OK) {
-        /* Build List of names */
-        refnames = conv_refnames_result(result);
-        free(result);
+        Py_DECREF(pArgs);
+        Py_DECREF(pDummyList);
     } else {
-        refnames = PyList_New(0);
+        if (PyErr_Occurred()) {
+            PyErr_Print();
+        }
+        DEBUGLOG("Cannot find function \"%s\"\n", array_func_name);
     }
 
-    return refnames;
+    Py_XDECREF(pArrayClass);
+    Py_DECREF(pArrayModule);
+
+    return pValue;
 }
 
-static PyObject *ht2py_repeat_expand(PyObject *self, PyObject *args)
-{
-    PyObject *cap;
-    char *name = NULL;
-    uint64_t rpos = 0;
-    uint64_t rlen = 0;
-
-    // Parse Args
-    // ht2py.repeat_expand(handle, 'repeat_name', repeat_pos, repeat_len)
-    if(!PyArg_ParseTuple(args, "OsLL", &cap, &name, &rpos, &rlen)) {
-		DEBUGLOG("Can't parse args\n");
-        return NULL;
-    }
-
-    //fprintf(stderr, "%s, %lu, %lu\n", name, rpos, rlen);
-
-    ht2_handle_t handle = get_handle(cap);
-    if(handle == NULL) {
-		DEBUGLOG("Can't get handle\n");
-        return NULL;
-    }
-
-
-    struct ht2_repeat_expand_result *result = NULL;
-    ht2_error_t ret = ht2_repeat_expand(handle, name, rpos, rlen, &result);
-
-    PyObject *positions = NULL;
-    if(ret == HT2_OK) {
-        /* Build list of position */
-        positions = conv_repeat_expand_result(result);
-        free(result);
-    } else {
-		DEBUGLOG("error %d, %s, %lu, %lu\n", ret,
-				name, rpos, rlen);
-        positions = PyList_New(0);
-    }
-
-    return positions;
-}
-#endif
 
 /**
- * gemmulem.unmixgaussians( valuelist, numexponentials, maxiter, rtole)
+ * gemmulem.expectationmaximization(compatibilitymatrix, counts, verbose, maxiter, rtole)
  *
  * @return list
  *
  */
-static PyObject* pygemmulem_unmixgaussians(PyObject* self, PyObject* args)
+static PyObject* pygemmulem_em(PyObject* self, PyObject* args, PyObject* kwargs)
 {
-    PyObject* valuelist = NULL;
-    int num_exponential = 0; 
-    int maxiter = 0;
+    static char* kwlist[] = {"", "", "verbose", "maxiter", "rtole", NULL};
+    PyObject* compobj = NULL;
+    PyObject* countobj = NULL;
+
+    int verbose = 0;
+    int maxiter = 1000;
     double rtole = 0.00001;
 
-    PyArg_ParseTuple(args, "OI", &valuelist, &num_exponential);
- 
+    int NumPattern = 0;
+    int NumCategory = 0;
 
-    return NULL;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|iid:expectationmaximization", kwlist,
+                &compobj, &countobj, &verbose, &maxiter, &rtole))
+    {
+        DEBUGLOG("Can't parse argument\n");
+        return NULL;
+    }
+
+    DEBUGLOG("verbose: %d\n", verbose);
+    DEBUGLOG("maxiter: %d\n", maxiter);
+    DEBUGLOG("rtole: %f\n", rtole);
+
+    // compobj is list of str
+    // check type
+
+    if (!PyList_Check(compobj)) {
+        DEBUGLOG("invalid compobj type\n");
+        return NULL;
+    }
+    if (!PyList_Check(countobj)) {
+        DEBUGLOG("invalid countobj type\n");
+        return NULL;
+    }
+
+    NumPattern = PyList_Size(compobj);
+    DEBUGLOG("numpattern: %d\n", NumPattern);
+
+    if (PyList_Size(countobj) != NumPattern) {
+        DEBUGLOG("Invalid countobj size\n");
+        return NULL;
+    }
+
+    if (NumPattern > 0) {
+        PyObject *item = PyList_GetItem(compobj, 0);
+
+        const char *itemstr = PyUnicode_AsUTF8(item);
+        if (itemstr) {
+            NumCategory = strlen(itemstr);
+        }
+
+        PyObject_Print(item, stdout, 0);
+        fprintf(stdout, "\n");
+    }
+
+    DEBUGLOG("numcategory: %d\n", NumCategory);
+
+
+    // Create EMCompatCount object
+    EMCompatCount_t emparam;
+    emparam.NumPattern = NumPattern;
+    emparam.NumCategory = NumCategory;
+    emparam.Counts = (int *)malloc(sizeof(int) * NumPattern);
+    emparam.CompatPattern = (char *)malloc(NumCategory * NumPattern);
+
+    memset(emparam.Counts, 0, sizeof(int) * NumPattern);
+    memset(emparam.CompatPattern, 0, NumCategory * NumPattern);
+
+    for(int i = 0; i < NumPattern; i++) {
+        PyObject *item = PyList_GetItem(compobj, i);
+
+        const char *itemstr = PyUnicode_AsUTF8(item);
+
+        if (strlen(itemstr) != NumCategory) {
+            DEBUGLOG("Invalid compatibility matrix\n");
+            free(emparam.CompatPattern);
+            free(emparam.Counts);
+            return NULL;
+        }
+
+        memcpy(emparam.CompatPattern + i * NumCategory, itemstr, NumCategory);
+
+        item = PyList_GetItem(countobj, i);
+        emparam.Counts[i] = PyLong_AsLong(item);
+    }
+
+
+    EMConfig_t cfg;
+    EMResult_t result;
+
+    cfg.verbose = verbose;
+    cfg.maxiter = maxiter;
+    cfg.rtole = rtole;
+
+    ExpectationMaximization(&emparam, &result, &cfg);
+   
+    if (result.size != NumCategory) {
+        DEBUGLOG("Invalid result size\n");
+    }
+
+    // preparing return object
+    PyObject* listobj = PyList_New(result.size);
+    for(int i = 0; i < result.size; i++) {
+        PyList_SET_ITEM(listobj, i, PyFloat_FromDouble(result.values[i]));
+    }
+
+    ReleaseEMResult(&result);
+
+    free(emparam.Counts);
+    free(emparam.CompatPattern);
+
+    return listobj;
+}
+
+
+/**
+ * gemmulem.unmixexponentials(values, numexponentials, verbose, maxiter, rtole)
+ *
+ * @return list
+ *
+ */
+static PyObject* pygemmulem_unmixexponentials(PyObject* self, PyObject* args, PyObject* kwargs)
+{
+    static char* kwlist[] = {"", "", "verbose", "maxiter", "rtole", NULL};
+    PyObject* valueobj = NULL;
+    int num_exponentials = 0;
+    int verbose = 0;
+    int maxiter = 1000;
+    double rtole = 0.000001;
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "Oi|iid:unmixexponentials", kwlist,
+                &valueobj, &num_exponentials, &verbose, &maxiter, &rtole)) {
+        DEBUGLOG("Can't parse argument\n");
+        return NULL;
+    }
+
+    DEBUGLOG("num_exponentials: %d\n", num_exponentials);
+    DEBUGLOG("verbose: %d\n", verbose);
+    DEBUGLOG("maxiter: %d\n", maxiter);
+    DEBUGLOG("rtole: %f\n", rtole);
+
+
+    // create bufferview to value object 
+    if (!PyObject_CheckBuffer(valueobj)) {
+        DEBUGLOG("Doesn't support buffer object\n");
+        // FIXME: TypeError?
+        Py_RETURN_NONE;
+    }
+
+    Py_buffer bufferview;
+    if (PyObject_GetBuffer(valueobj, &bufferview, PyBUF_SIMPLE) < 0) {
+        DEBUGLOG("Can't get buffer\n");
+        Py_RETURN_NONE;
+    }
+
+    size_t len = bufferview.len / bufferview.itemsize;
+    double *valueptr = (double *)bufferview.buf;
+
+    EMConfig_t cfg;
+    EMResultExponential_t result;
+
+    cfg.verbose = verbose;
+    cfg.maxiter = maxiter;
+    cfg.rtole = rtole;
+
+    UnmixExponentials(valueptr, len, num_exponentials, &result, &cfg);
+
+    PyBuffer_Release(&bufferview);
+
+
+    // preparing return object
+    int resultlen = result.numExponentials * 2; /* means, probs */
+    PyObject* array = create_darray_object(resultlen);
+
+    Py_buffer resultview;
+    if (PyObject_GetBuffer(array, &resultview, PyBUF_WRITABLE) < 0) {
+        DEBUGLOG("Can't get resultivew\n");
+        ReleaseEMResultExponential(&result);
+        Py_RETURN_NONE;
+    }
+
+    double* resultptr = (double *)resultview.buf;
+    memcpy(resultptr, result.means_final, sizeof(double) * result.numExponentials);
+    memcpy(resultptr + result.numExponentials, result.probs_final, sizeof(double) * result.numExponentials);
+
+    PyBuffer_Release(&resultview);
+    ReleaseEMResultExponential(&result);
+
+    if (array) {
+        return array;
+    }
+    Py_RETURN_NONE;
+}
+
+/**
+ * gemmulem.unmixgaussians(values, numgaussians, verbose, maxiter, rtole)
+ *
+ * @return list
+ *
+ */
+static PyObject* pygemmulem_unmixgaussians(PyObject* self, PyObject* args, PyObject* kwargs)
+{
+    static char* kwlist[] = {"", "", "verbose", "maxiter", "rtole", NULL};
+    PyObject* values = NULL;
+    int num_gaussians = 0; 
+    int verbose = 0;
+    int maxiter = 1000;
+    double rtole = 0.000001;
+
+#if 0
+    PyObject_Print(kwargs, stdout, 0);
+    fprintf(stdout, "\n");
+#endif
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "Oi|iid:unmixgaussians", kwlist,
+                &values, &num_gaussians, &verbose, &maxiter, &rtole))
+    {
+        DEBUGLOG("Can't parse argument\n");
+        return NULL;
+    }
+
+    DEBUGLOG("num_gaussians: %d\n", num_gaussians); 
+    DEBUGLOG("verbose: %d\n", verbose);
+    DEBUGLOG("maxiter: %d\n", maxiter);
+    DEBUGLOG("rtole: %f\n", rtole);
+
+    // using Buffer Protocol
+    //
+    if (!PyObject_CheckBuffer(values)) {
+        DEBUGLOG("doesn't support buffer object\n");
+        Py_RETURN_NONE;
+    }
+
+    Py_buffer bufferview;
+
+    if (PyObject_GetBuffer(values, &bufferview, PyBUF_SIMPLE) < 0) {
+        DEBUGLOG("Can't get buffer\n");
+        Py_RETURN_NONE;
+    }
+
+    size_t len = bufferview.len / bufferview.itemsize;
+    double* valueptr = (double *)bufferview.buf;
+
+    EMConfig_t cfg;
+    EMResultGaussian_t result;
+
+    cfg.verbose = verbose;
+    cfg.maxiter = maxiter;
+    cfg.rtole = rtole;
+
+    UnmixGaussians(valueptr, len, num_gaussians, &result, &cfg);
+
+    PyBuffer_Release(&bufferview);
+
+    // preparing return object
+    int result_len = result.numGaussians * 3; /* means, vars, probs */ 
+    PyObject* array = create_darray_object(result_len);
+
+    Py_buffer resultview;
+    if (PyObject_GetBuffer(array, &resultview, PyBUF_WRITABLE) < 0) {
+        DEBUGLOG("Can't get resultview\n");
+        ReleaseEMResultGaussian(&result);
+        Py_RETURN_NONE;
+    }
+
+    double* resultptr = (double *)resultview.buf;
+    memcpy(resultptr, result.means_final, sizeof(double) * result.numGaussians);
+    memcpy(resultptr + result.numGaussians, result.vars_final, sizeof(double) * result.numGaussians);
+    memcpy(resultptr + result.numGaussians*2, result.probs_final, sizeof(double) * result.numGaussians);
+
+    PyBuffer_Release(&resultview);
+
+    ReleaseEMResultGaussian(&result);
+    if (array) {
+        return array;
+    }
+    Py_RETURN_NONE;
 }
 
 static PyMethodDef pygemmulem_method[] = {
-#if 0
-	/* Initialize APIs */
-	{"get_options", ht2py_get_options, METH_NOARGS, "Get default options"},
-	{"init", ht2py_init, METH_VARARGS, "Initialize HT2Lib handle"},
-	{"close", ht2py_close, METH_VARARGS, "Release HT2Lib handle"},
-
-	/* Index APIs */
-	{"index_getrefnamebyid", ht2py_index_getrefnamebyid, METH_VARARGS, "Get reference name"},
-	{"index_getrefnames", ht2py_index_getrefnames, METH_VARARGS, "Get all reference names"},
-
-	/* Repeat APIs */
-	{"repeat_expand", ht2py_repeat_expand, METH_VARARGS, "Find reference positions"},
-#endif
-
-//    { "expectationmaximization", pygemmulem_em, METH_VARARGS, "Expectation Maximization" },
-    { "unmixgaussians", pygemmulem_unmixgaussians, METH_VARARGS, "Unmix Gaussian" },
-//    { "unmixexponentials", pygemmulem_unmixexponentials, METH_VARARGS, "Unmix Exponentials" },
+    { "expectationmaximization", (PyCFunction)pygemmulem_em, METH_VARARGS | METH_KEYWORDS, "Expectation Maximization" },
+    { "unmixgaussians", (PyCFunction)pygemmulem_unmixgaussians, METH_VARARGS | METH_KEYWORDS, "Unmix Gaussian" },
+    { "unmixexponentials", (PyCFunction)pygemmulem_unmixexponentials, METH_VARARGS | METH_KEYWORDS, "Unmix Exponentials" },
 
 	/* */
 	{NULL, NULL, 0, NULL}
@@ -356,14 +379,14 @@ static PyMethodDef pygemmulem_method[] = {
 
 static struct PyModuleDef pygemmulem_module = {
     PyModuleDef_HEAD_INIT,
-    "gemmulem",
+    "pygemmulem",
     NULL,
     -1,
     pygemmulem_method
 };
 
 PyMODINIT_FUNC
-PyInit_gemmulem(void)
+PyInit_pygemmulem(void)
 {
     return PyModule_Create(&pygemmulem_module);
 }
