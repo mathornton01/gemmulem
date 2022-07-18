@@ -23,7 +23,7 @@ from distutils.core import setup, Extension
 
 module1 = Extension('pygemmulem',
 #                    define_macros = [('DEBUG', '1')],
-                    include_dirs=['../lib'],
+                    include_dirs=['../../src/lib'],
 #                    libraries=['stdc++'],
                     extra_objects = ['../../build/src/lib/libem.a'],
                     sources = ['pygemmulem.c'])
