@@ -1,0 +1,3 @@
+PKG_CFLAGS=-fPIC
+PKG_CPPFLAGS=-I../../../lib
+PKG_LIBS=-L../../../lib -lem
