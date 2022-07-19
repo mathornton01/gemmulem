@@ -22,47 +22,126 @@
 # ./setup.py build
 # ./setup.py install
 #
-import ht2py 
+import pygemmulem
+import sys, os
+import array
+from argparse import ArgumentParser, FileType
 
-# Path to index
-ht2_index = '../../evaluation/indexes/HISAT2_22/22_rep'
 
-# Get default options
-ht2_options = ht2py.get_options()
 
-print ht2_options
-ht2_options['gVerbose'] = 1
-ht2_options['startVerbose'] = 1
-# or
-ht2_options = {}
+def run_coarse_multinomial_mode(fp, verbose=False, maxiter=1000, rtole=0.00001):
 
-handle = ht2py.init(ht2_index, ht2_options)
+    # load compatiblity pattern and count
+    #
+    comppattern = []
+    counts = []
 
-print ht2py.index_getrefnamebyid(handle, 0)
+    for line in fp:
+        line = line.strip().split(',')
+        
+        comppattern.append(line[0])
+        counts.append(int(line[1]))
 
-#print ht2py.index_getrefnamebyid(handle, 0, 1, 3, 5, 7, 9)
-# outofindex
-#print ht2py.index_getrefnamebyid(handle, 1)
-#print ht2py.index_getrefnamebyid(handle, -1)
 
-refnames = ht2py.index_getrefnames(handle)
 
-#for name in refnames:
-#    print name
+    result = pygemmulem.expectationmaximization(comppattern, counts, verbose)
 
-# repeat expansion
-positions = ht2py.repeat_expand(handle, 'rep100-300', 8308, 100) 
+    return result
 
-for pos in positions:
-    chr_id = pos[0]
-    direction = pos[1]
-    chr_pos = pos[2]
 
-    chr_dir = '+'
-    if direction == 1:
-        chr_dir = '-'
+def run_gaussian_mixture_mode(fp, num_dist=3, verbose=False, maxiter=1000, rtole=0.00001):
 
-    print refnames[chr_id].split()[0] + ":" + str(chr_pos) + ':' + chr_dir
+    # load values
+    values = []
 
-# close handle
-ht2py.close(handle)
+    for line in fp:
+        line = line.strip().split(',')
+        values.append(float(line[0]))
+
+    ar = array.array('d', values) 
+    result = pygemmulem.unmixgaussians(ar, num_dist, verbose=verbose, maxiter=maxiter, rtole=rtole)
+
+    return result
+
+
+def run_exponential_mixture_mode(fp, num_dist=3, verbose=False, maxiter=1000, rtole=0.00001):
+
+    # load values
+    values = []
+
+    for line in fp:
+        line = line.strip().split(',')
+        values.append(float(line[0]))
+
+    ar = array.array('d', values) 
+    result = pygemmulem.unmixexponentials(ar, num_dist, verbose=verbose, maxiter=maxiter, rtole=rtole)
+
+    return result
+
+
+if __name__ == '__main__':
+    parser = ArgumentParser(
+            description='GEMMULEM')
+
+    parser.add_argument('input_fp',
+            nargs='?',
+            type=FileType('r'),
+            help='Input data. list of counts with compatibility patters or list of values')
+
+
+    group = parser.add_mutually_exclusive_group()
+
+    group.add_argument('-i',
+            dest='cmm',
+            action='store_true',
+            default=False,
+            help='Run EM in coarse multinomial mode')
+
+    group.add_argument('-g',
+            dest='gmm',
+            action='store_true',
+            default=False,
+            help='Run EM in gaussian mixture deconvolution mode')
+
+    group.add_argument('-e',
+            dest='emm',
+            action='store_true',
+            default=False,
+            help='Run EM in exponential mixture deconvolution mode')
+
+    parser.add_argument('-n', '--num-dist',
+            dest='numdist',
+            action='store',
+            default=3,
+            type=int,
+            help='Number of distributions')
+
+    parser.add_argument('--verbose',
+            dest='verbose',
+            action='store_true',
+            default=False,
+            help='')
+
+
+    args = parser.parse_args()
+
+    if not args.input_fp:
+        parser.print_help()
+        exit(1)
+        
+
+    if not args.cmm and not args.gmm and not args.emm:
+        parser.print_help()
+        exit(2)
+
+
+    r = None
+    if args.cmm:
+        r = run_coarse_multinomial_mode(args.input_fp, args.verbose)
+    elif args.gmm:
+        r = run_gaussian_mixture_mode(args.input_fp, args.numdist, args.verbose)
+    elif args.emm:
+        r = run_exponential_mixture_mode(args.input_fp, args.numdist, args.verbose)
+
+    print(list(r))
+

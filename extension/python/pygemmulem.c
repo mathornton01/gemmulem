@@ -139,22 +139,19 @@ static PyObject* pygemmulem_em(PyObject* self, PyObject* args, PyObject* kwargs)
             NumCategory = strlen(itemstr);
         }
 
+#if 0
         PyObject_Print(item, stdout, 0);
         fprintf(stdout, "\n");
+#endif
     }
 
     DEBUGLOG("numcategory: %d\n", NumCategory);
 
+    int* CountPtr = (int*)malloc(sizeof(int) * NumPattern);
+    char* CompatMatrixPtr = (char*)malloc(NumCategory * NumPattern);
 
-    // Create EMCompatCount object
-    EMCompatCount_t emparam;
-    emparam.NumPattern = NumPattern;
-    emparam.NumCategory = NumCategory;
-    emparam.Counts = (int *)malloc(sizeof(int) * NumPattern);
-    emparam.CompatPattern = (char *)malloc(NumCategory * NumPattern);
-
-    memset(emparam.Counts, 0, sizeof(int) * NumPattern);
-    memset(emparam.CompatPattern, 0, NumCategory * NumPattern);
+    memset(CountPtr, 0, sizeof(int) * NumPattern);
+    memset(CompatMatrixPtr, 0, NumCategory * NumPattern);
 
     for(int i = 0; i < NumPattern; i++) {
         PyObject *item = PyList_GetItem(compobj, i);
@@ -163,15 +160,15 @@ static PyObject* pygemmulem_em(PyObject* self, PyObject* args, PyObject* kwargs)
 
         if (strlen(itemstr) != NumCategory) {
             DEBUGLOG("Invalid compatibility matrix\n");
-            free(emparam.CompatPattern);
-            free(emparam.Counts);
+            free(CompatMatrixPtr);
+            free(CountPtr);
             return NULL;
         }
 
-        memcpy(emparam.CompatPattern + i * NumCategory, itemstr, NumCategory);
+        memcpy(CompatMatrixPtr + i * NumCategory, itemstr, NumCategory);
 
         item = PyList_GetItem(countobj, i);
-        emparam.Counts[i] = PyLong_AsLong(item);
+        CountPtr[i] = PyLong_AsLong(item);
     }
 
 
@@ -182,7 +179,13 @@ static PyObject* pygemmulem_em(PyObject* self, PyObject* args, PyObject* kwargs)
     cfg.maxiter = maxiter;
     cfg.rtole = rtole;
 
-    ExpectationMaximization(&emparam, &result, &cfg);
+    ExpectationMaximization(
+            CompatMatrixPtr,
+            NumPattern, /* NumRows */
+            NumCategory, /* NumCols */
+            CountPtr,
+            NumPattern, /* NumCount */
+            &result, &cfg);
    
     if (result.size != NumCategory) {
         DEBUGLOG("Invalid result size\n");
@@ -196,8 +199,8 @@ static PyObject* pygemmulem_em(PyObject* self, PyObject* args, PyObject* kwargs)
 
     ReleaseEMResult(&result);
 
-    free(emparam.Counts);
-    free(emparam.CompatPattern);
+    free(CountPtr);
+    free(CompatMatrixPtr);
 
     return listobj;
 }
