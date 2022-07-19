@@ -479,10 +479,14 @@ double GetExpoLH(double value, double mn){
     }
 }
 
-int ExpectationMaximization(EMCompatCount_t* CompatCountPtr, EMResult_t* ResultPtr, EMConfig_t* ConfigPtr)
+int ExpectationMaximization(const char* CompatMatrixPtr, size_t NumRows, size_t NumCols, const int* CountPtr, size_t NumCount, EMResult_t* ResultPtr, EMConfig_t* ConfigPtr)
 {
-    if (CompatCountPtr == NULL || ResultPtr == NULL) {
+    if (CompatMatrixPtr == NULL || CountPtr == NULL || ResultPtr == NULL) {
         return -1;
+    }
+
+    if (NumRows != NumCount) {
+        return -2;
     }
 
     EMConfig_t cfg = EMConfigDefault;
@@ -490,8 +494,8 @@ int ExpectationMaximization(EMCompatCount_t* CompatCountPtr, EMResult_t* ResultP
         cfg = *ConfigPtr;
     }
 
-    int numtrans = CompatCountPtr->NumCategory;
-    int numpats = CompatCountPtr->NumPattern;
+    const int NumTrans = NumCols;
+    const int NumPattern = NumRows;
 
     double* abdninit = NULL; // Initialization vector for the abundance values
     double* abdn_new = NULL; // For storing the newly computed abundance values at a given stage
@@ -506,20 +510,19 @@ int ExpectationMaximization(EMCompatCount_t* CompatCountPtr, EMResult_t* ResultP
     unsigned long long start_ts = GetCurrentTimestamp();
 
     // allocate abundance vectors
-    size_t vecsize = sizeof(double) * numtrans;
+    size_t vecsize = sizeof(double) * NumTrans;
     abdninit = (double *)malloc(vecsize);
     abdn_new = (double *)malloc(vecsize);
     abdn_old = (double *)malloc(vecsize);
     expected_counts = (double *)malloc(vecsize);
 
-    for (int i = 0; i < CompatCountPtr->NumPattern; i++) {
-        totalreads = totalreads + CompatCountPtr->Counts[i];
+    for (int i = 0; i < NumPattern; i++) {
+        totalreads = totalreads + CountPtr[i];
     }
 
-    //cout << " Total Reads : " << to_string(totalreads);
-    for (int i = 0; i < numtrans; i++) {
-        abdninit[i] = 1.0/numtrans;
-        expected_counts[i] = totalreads/numtrans;
+    for (int i = 0; i < NumTrans; i++) {
+        abdninit[i] = 1.0/NumTrans;
+        expected_counts[i] = totalreads / NumTrans;
     }
 
     memcpy(abdn_new, abdninit, vecsize); // initialize both the previous and current iteration abundances to the initialization values.
@@ -531,32 +534,32 @@ int ExpectationMaximization(EMCompatCount_t* CompatCountPtr, EMResult_t* ResultP
 
         memset(expected_counts, 0, vecsize);
 
-        for (int i = 0; i < numpats; i++){
+        for (int i = 0; i < NumPattern; i++){
             abdn_total = 0;
             totalcomp = 0;
-            for (int j = 0; j < numtrans; j++){
-                const size_t offset = i * numtrans + j;
+            for (int j = 0; j < NumTrans; j++){
+                const size_t offset = i * NumTrans + j;
 
-                totalcomp += (int)(CompatCountPtr->CompatPattern[offset] == '1');
-                if (CompatCountPtr->CompatPattern[offset] == '1') {
+                totalcomp += (int)(CompatMatrixPtr[offset] == '1');
+                if (CompatMatrixPtr[offset] == '1') {
                     abdn_total += abdn_old[j];
                 }
             }
-            for (int j = 0; j < numtrans; j++){
-                const size_t offset = i * numtrans + j;
-                if (CompatCountPtr->CompatPattern[offset] == '1') {
-                    expected_counts[j] += ((abdn_old[j]/abdn_total) * CompatCountPtr->Counts[i]);
+            for (int j = 0; j < NumTrans; j++){
+                const size_t offset = i * NumTrans + j;
+                if (CompatMatrixPtr[offset] == '1') {
+                    expected_counts[j] += ((abdn_old[j]/abdn_total) * CountPtr[i]);
                 }
             }
         }
-        for (int j = 0; j < numtrans; j++){
+        for (int j = 0; j < NumTrans; j++){
             abdn_new[j] = expected_counts[j]/totalreads;
         }
         relerr = 0;
-        for(int j = 0; j < numtrans; j++){
+        for(int j = 0; j < NumTrans; j++){
             relerr += ((abdn_new[j])-(abdn_old[j]))*((abdn_new[j])-(abdn_old[j]));
         }
-        relerr /= numtrans;
+        relerr /= NumTrans;
         relerr = sqrt(relerr);
         if (ConfigPtr->verbose) {
             printf("INFO: EM - Iteration %d Relative Error: %f\n", num_iter, relerr);
@@ -574,7 +577,7 @@ int ExpectationMaximization(EMCompatCount_t* CompatCountPtr, EMResult_t* ResultP
          printf("INFO: EM - Took %llu microseconds to run\n", end_ts - start_ts);
      }
 
-     ResultPtr->size = numtrans;
+     ResultPtr->size = NumTrans;
      ResultPtr->values = abdn_old;
 
      free(abdn_new);

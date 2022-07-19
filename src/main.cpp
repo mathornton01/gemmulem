@@ -56,8 +56,6 @@ struct comppatcounts parseinputgenesam(string samfilename);
 vector<double> parsegmvinputfile(string valfilename);
 struct genesamfile readgenesamintostruct(string samfilename);
 
-void MakeEMCompatCount(EMCompatCount_t* CompatCountPtr, struct comppatcounts* cpc);
-void ReleaseEMCompatCount(EMCompatCount_t* CompatCountPtr);
 void MakeEMConfig(EMConfig_t* ConfigPtr, struct emsettings* ems);
 
 void printusage(){
@@ -233,20 +231,29 @@ int main(int argc, char** argv)
             }
         }
 
-        EMCompatCount_t CompatCount;
         EMConfig_t EMConfig;
         EMResult_t Result;
 
-        MakeEMCompatCount(&CompatCount, &cpc);
         MakeEMConfig(&EMConfig, &ems);
+
+        std::string CompatMatrix;
+
+        for(int i = 0; i < cpc.compatibilityPattern.size(); i++) {
+            CompatMatrix.append(cpc.compatibilityPattern[i]);
+        }
 
         // Perform expectation maximization on the compatibility patterns and counts.
         //vector<double> emabundances = expectationmaximization(cpc,ems);
-        ExpectationMaximization(&CompatCount, &Result, &EMConfig);
+        ExpectationMaximization(
+                CompatMatrix.data(), /* Compatiblity Matrix */
+                cpc.compatibilityPattern.size(), /* NumRows */
+                cpc.compatibilityPattern[0].size(), /* NumCols */
+                cpc.count.data(), /* CountPtr */
+                cpc.count.size(), /* NumCount */
+                &Result, &EMConfig);
         vector<double> emabundances(Result.size, 0.0);
         memcpy(emabundances.data(), Result.values, Result.size * sizeof(double));
         ReleaseEMResult(&Result);
-        ReleaseEMCompatCount(&CompatCount);
 
         if (ems.verbose){
             if (ems.termcat){
@@ -534,49 +541,6 @@ struct comppatcounts parseinputgenesam(string samfilename){
      }        
     
     return(cpc);
-}
-
-
-void MakeEMCompatCount(EMCompatCount_t* CompatCountPtr, struct comppatcounts* cpc)
-{
-    if (CompatCountPtr == NULL || cpc == NULL) {
-        return;
-    }
-
-    size_t NumPattern = cpc->compatibilityPattern.size();
-    size_t NumCategory = cpc->compatibilityPattern[0].size();
-
-    CompatCountPtr->NumPattern = NumPattern;
-    CompatCountPtr->NumCategory = NumCategory;
-
-    CompatCountPtr->Counts = (int*)malloc(sizeof(int) * NumPattern);
-    memcpy(CompatCountPtr->Counts, cpc->count.data(), sizeof(int) * NumPattern);
-
-
-    // Compatibility matrix
-    const size_t totsize = NumPattern * NumCategory;
-    CompatCountPtr->CompatPattern = (char*)malloc(totsize);
-
-    for(int i = 0; i < cpc->compatibilityPattern.size(); i++) {
-        const int offset = NumCategory * i;
-
-        memcpy(CompatCountPtr->CompatPattern + offset, cpc->compatibilityPattern[i].data(), NumCategory);
-    }
-}
-
-void ReleaseEMCompatCount(EMCompatCount_t* CompatCountPtr)
-{
-    if (CompatCountPtr == NULL) {
-        return;
-    }
-    if (CompatCountPtr->Counts) {
-        free(CompatCountPtr->Counts);
-        CompatCountPtr->Counts = NULL;
-    }
-    if (CompatCountPtr->CompatPattern) {
-        free(CompatCountPtr->CompatPattern);
-        CompatCountPtr->CompatPattern = NULL;
-    }
 }
 
 void MakeEMConfig(EMConfig_t* ConfigPtr, struct emsettings* ems)

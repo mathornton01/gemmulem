@@ -7,14 +7,6 @@ extern "C"
 {
 #endif
 
-struct EMCompatCount {
-    size_t NumPattern; // num of rows
-    size_t NumCategory; // num of columns
-    int* Counts;
-    char* CompatPattern; // compatibilty matrix
-};
-typedef struct EMCompatCount EMCompatCount_t;
-
 struct EMConfig {
     int verbose;
     int maxiter;
@@ -54,12 +46,12 @@ typedef struct EMResultExponential EMResultExponential_t;
 /**
  * Run ExpectationMaximization
  *
- * @param CompatCountPtr
+ * @param CompatMatrixPtr
  * @param ResultPtr
  * @param ConfigPtr
  * @return
  */
-int ExpectationMaximization(EMCompatCount_t* CompatCountPtr, EMResult_t* ResultPtr, EMConfig_t* ConfigPtr);
+int ExpectationMaximization(const char* CompatMatrixPtr, size_t NumRows, size_t NumCols, const int* CountPtr, size_t NumCount, EMResult_t* ResultPtr, EMConfig_t* ConfigPtr);
 
 
 // Function headers 
