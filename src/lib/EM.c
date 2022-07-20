@@ -530,7 +530,7 @@ int ExpectationMaximization(const char* CompatMatrixPtr, size_t NumRows, size_t 
 
     int num_iter = 0;
 
-    while (relerr > ConfigPtr->rtole && num_iter < ConfigPtr->maxiter) {
+    while (relerr > cfg.rtole && num_iter < cfg.maxiter) {
 
         memset(expected_counts, 0, vecsize);
 
@@ -561,7 +561,7 @@ int ExpectationMaximization(const char* CompatMatrixPtr, size_t NumRows, size_t 
         }
         relerr /= NumTrans;
         relerr = sqrt(relerr);
-        if (ConfigPtr->verbose) {
+        if (cfg.verbose) {
             printf("INFO: EM - Iteration %d Relative Error: %f\n", num_iter, relerr);
         }
 
@@ -571,7 +571,7 @@ int ExpectationMaximization(const char* CompatMatrixPtr, size_t NumRows, size_t 
         num_iter++;
     }
 
-     if (ConfigPtr->verbose) {
+     if (cfg.verbose) {
          printf("INFO: EM - Ran for %d iteration\n", num_iter);
          unsigned long long end_ts = GetCurrentTimestamp();
          printf("INFO: EM - Took %llu microseconds to run\n", end_ts - start_ts);
@@ -630,5 +630,23 @@ void ReleaseEMResultExponential(EMResultExponential_t* ResultPtr)
     FREE_IF(ResultPtr->means_final);
 }
 
+void GetEMDefaultConfig(EMConfig_t* ConfigPtr)
+{
+    if (ConfigPtr) {
+        *ConfigPtr = EMConfigDefault;
+    }
+}
+void GetEMGaussianDefaultConfig(EMConfig_t* ConfigPtr)
+{
+    if (ConfigPtr) {
+        *ConfigPtr = EMConfigGaussianDefault;
+    }
+}
+void GetEMExponentialDefaultConfig(EMConfig_t* ConfigPtr)
+{
+    if (ConfigPtr) {
+        *ConfigPtr = EMConfigExponentialDefault;
+    }
+}
 #undef FREE_IF
 

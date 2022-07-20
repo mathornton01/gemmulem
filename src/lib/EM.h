@@ -110,6 +110,15 @@ void ReleaseEMResultGaussian(EMResultGaussian_t* ResultPtr);
  */
 void ReleaseEMResultExponential(EMResultExponential_t* ResultPtr);
 
+
+/**
+ * Get default configuration
+ * @param ConfigPtr
+ */
+void GetEMDefaultConfig(EMConfig_t* ConfigPtr);
+void GetEMGaussianDefaultConfig(EMConfig_t* ConfigPtr);
+void GetEMExponentialDefaultConfig(EMConfig_t* ConfigPtr);
+
 #ifdef __cplusplus
 }
 #endif // __cplusplus

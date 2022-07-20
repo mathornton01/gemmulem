@@ -11,12 +11,46 @@
 
 SEXP r_expectationmaximization(SEXP compats, SEXP counts) 
 {
-    SEXP ResultVec;
 
-    PROTECT(ResultVec = allocVector(INTSXP, 1));
-    INTEGER(ResultVec)[0] = 0;
+    size_t NumPattern = LENGTH(compats);
+    SEXP StrItem = STRING_ELT(compats, 0);
+    const char* PatternItem = CHAR(asChar(StrItem));
+    size_t NumCategory = strlen(PatternItem);
+
+    // alloc for CompatMatrixPtr
+    char* CompatMatrixPtr = (char*)malloc(NumCategory * NumPattern);
+
+    for(int i = 0; i < NumPattern; i++) {
+        const char* ptr = CHAR(asChar(STRING_ELT(compats, i)));
+        if (ptr != NULL) {
+            memcpy(CompatMatrixPtr + i * NumCategory, ptr, NumCategory);
+        }
+    }
+
+    const int* CountPtr = INTEGER(counts);
+    size_t NumCount = LENGTH(counts);
+
+    EMResult_t Results;
+    ExpectationMaximization(
+            CompatMatrixPtr,
+            NumPattern, /* NumRows */
+            NumCategory, /* NumCols */
+            CountPtr,
+            NumCount,
+            &Results,
+            NULL /* Default config */
+            );
+
+    SEXP ResultVec;
+    int ResultSize = Results.size;
+
+    PROTECT(ResultVec = allocVector(REALSXP, ResultSize));
+    double* ResultPtr = REAL(ResultVec);
+    memcpy(ResultPtr, Results.values, sizeof(double) * ResultSize);
+    ReleaseEMResult(&Results);
     UNPROTECT(1);
 
+    free(CompatMatrixPtr);
     return ResultVec;
 }
 
@@ -24,8 +58,6 @@ SEXP r_unmixgaussians(SEXP values, SEXP num_dist)
 {
     int Size = LENGTH(values);
     int NumDist = asInteger(num_dist);
-
-    printf("Size=%d, NumDist=%d\n", Size, NumDist);
 
     EMResultGaussian_t Results;
     UnmixGaussians(REAL(values), Size, NumDist, &Results, NULL);
@@ -56,8 +88,6 @@ SEXP r_unmixexponentials(SEXP values, SEXP num_dist)
 {
     int Size = LENGTH(values);
     int NumDist = asInteger(num_dist);
-
-    printf("Size=%d, NumDist=%d\n", Size, NumDist);
 
     EMResultExponential_t Results;
     UnmixExponentials(REAL(values), Size, NumDist, &Results, NULL);
