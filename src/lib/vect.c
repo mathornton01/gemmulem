@@ -24,8 +24,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <sys/time.h>
-
 #include "simde/x86/avx2.h"
 
 #include "vect.h"
