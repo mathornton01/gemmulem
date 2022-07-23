@@ -20,16 +20,11 @@
 #ifndef __VECT_H__
 #define __VECT_H__
 
-#include <immintrin.h>
-
 #ifdef __cplusplus
 extern "C"
 {
 #endif // __cplusplus
 
-
-void Printm128i(FILE* LogFP, const __m128i v);
-void Printm128d(FILE* LogFP, const __m128d v);
 
 /**
  *
