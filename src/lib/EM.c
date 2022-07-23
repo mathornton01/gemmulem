@@ -1,6 +1,20 @@
 /*
- * TODO: Add license
+ * Copyright 2022, Micah Thornton and Chanhee Park <parkchanhee@gmail.com>
  *
+ * This file is part of GEMMULEM
+ *
+ * GEMMULEM is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * GEMMULEM is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with GEMMULEM.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stdio.h>
@@ -13,6 +27,7 @@
 #include <sys/time.h>
 
 #include "EM.h"
+#include "vect.h"
 
 // Some simple utility functions I need.
 double Min(const double* ValuePtr, size_t Size);
@@ -90,42 +105,51 @@ int UnmixGaussians(const double* ValuePtr, size_t Size, int NumGaussians, EMResu
         printf("INFO:  Number of Values observed total - %lu\n", Size);
     }
 
-    // Likelihood matrix
+    // Likelihood matrix,
+    //  Row is NumDist, Col is Size
     double* lhall = NULL;
     lhall = (double *)malloc(sizeof(double) * Size * NumGaussians);
     memset(lhall, 0, sizeof(double) * Size * NumGaussians);
+
+    double* tmpvec = NULL;
+    tmpvec = (double *)malloc(sizeof(double) * Size);
+    memset(tmpvec, 0, sizeof(double) * Size);
 
     while ((!mconv || !vconv || !pconv) && iter <= cfg.maxiter) {
         if (cfg.verbose) {
             printf("INFO:  EM Iteration - %d | Rel. Error Mean : %e | Rel. Error Var : %e | Rel. Error Prop : %e\n", iter, merr, verr, perr);
         }
 
-        double rowtotal = 0;
-        for (int i = 0; i < Size; i++){
-            rowtotal = 0;
-            for (int j = 0; j < NumGaussians; j++){
-                const size_t offset = i * NumGaussians + j;
-                double lh = GetNormLH(ValuePtr[i], mprev[j], vprev[j]) * pprev[j];
+        for (int j = 0; j < NumGaussians; j++){
+            const double m = mprev[j];
+            const double v = vprev[j];
+            const double p = pprev[j];
+
+            for (int i = 0; i < Size; i++){
+                double lh = GetNormLH(ValuePtr[i], m, v) * p;
 
                 if (lh == 0) {
                     lh = 0.000001;
                 }
-                lhall[offset] = lh;
-                rowtotal += lh;
-            }
-
-            for (int j = 0; j < NumGaussians; j++) {
-                const size_t offset = i * NumGaussians + j;
-                lhall[offset] = lhall[offset] / rowtotal;
+                lhall[j * Size + i] = lh;
             }
         }
 
+        for (int i = 0; i < Size; i++) {
+            double total = 0;
+            for (int j = 0; j < NumGaussians; j++) {
+                total += lhall[j * Size + i];
+            }
+            for (int j = 0; j < NumGaussians; j++) {
+                const size_t offset = j * Size + i;
+                lhall[offset] = lhall[offset] / total;
+            }
+        }
+
+
         // Generate the new proportion estimates
         for(int j = 0; j < NumGaussians; j++) {
-            pcur[j] = 0;
-            for(int i = 0; i < Size; i++){
-                pcur[j] += lhall[i * NumGaussians + j];
-            }
+            pcur[j] = SumVectorD(&lhall[j * Size], Size);
             pcur[j] /= Size;
         }
 
@@ -141,12 +165,9 @@ int UnmixGaussians(const double* ValuePtr, size_t Size, int NumGaussians, EMResu
         // Generate the mean estimates
         double colsum;
         for (int j = 0; j < NumGaussians; j++){
-            mcur[j] = 0;
-            colsum = 0;
-            for (int i = 0; i < Size; i++){
-                mcur[j] += lhall[i * NumGaussians + j] * ValuePtr[i];
-                colsum += lhall[i * NumGaussians + j];
-            }
+            MulVectorD(&lhall[j * Size], ValuePtr, tmpvec, Size);
+            mcur[j] = SumVectorD(tmpvec, Size);
+            colsum = SumVectorD(&lhall[j * Size], Size);
             mcur[j] /= colsum;
         }
 
@@ -165,8 +186,8 @@ int UnmixGaussians(const double* ValuePtr, size_t Size, int NumGaussians, EMResu
             vcur[j] = 0;
             colsum = 0;
             for (int i = 0; i < Size; i++){
-                vcur[j] += lhall[i * NumGaussians + j] * (pow(ValuePtr[i] - mcur[j], 2));
-                colsum += lhall[i * NumGaussians + j];
+                vcur[j] += lhall[j * Size + i] * (pow(ValuePtr[i] - mcur[j], 2));
+                colsum += lhall[j * Size + i];
             }
             vcur[j] /= colsum;
         }
@@ -207,6 +228,7 @@ int UnmixGaussians(const double* ValuePtr, size_t Size, int NumGaussians, EMResu
     ResultPtr->vars_final = vprev;
 
     free(lhall);
+    free(tmpvec);
 
     return 0;
 }
@@ -340,9 +362,20 @@ int UnmixExponentials(const double* ValuePtr, size_t Size, int NumExponentials, 
     }
 
     // Likelihood matrix
+    //     matrix
+    //      +----Size-----
+    //      |
+    //   NumDist = (NumExponentials)
+    //      |
+    //      +-------------
+    //
     double* lhall = NULL;
     lhall = (double *)malloc(sizeof(double) * Size * NumExponentials);
     memset(lhall, 0, sizeof(double) * Size * NumExponentials);
+
+    double* tmpvec = NULL;
+    tmpvec = (double *)malloc(sizeof(double) * Size);
+    memset(tmpvec, 0, sizeof(double) * Size);
 
     while ((!mconv || !pconv) && iter <= cfg.maxiter) {
         if (cfg.verbose) {
@@ -352,29 +385,35 @@ int UnmixExponentials(const double* ValuePtr, size_t Size, int NumExponentials, 
         // Get the Likelihoods
         double rowtotal = 0;
 
-        for (int i = 0; i < Size; i++) {
-            rowtotal = 0;
-            for (int j = 0; j < NumExponentials; j++) {
-                double lh = GetExpoLH(ValuePtr[i], mprev[j]) * pprev[j];
+        for (int j = 0; j < NumExponentials; j++) {
+            const double m = mprev[j];
+            const double p = pprev[j];
+
+            for (int i = 0; i < Size; i++) {
+                double lh = GetExpoLH(ValuePtr[i], m) * p;
 
                 if (lh == 0) {
                     lh = 0.000001;
                 }
-                lhall[i * NumExponentials + j] = lh;
-                rowtotal += lh;
+                lhall[j * Size + i] = lh;
+            }
+        }
+
+        for (int i = 0; i < Size; i++) {
+            double total = 0.0;
+
+            for (int j = 0; j < NumExponentials; j++) {
+                total += lhall[j * Size + i];
             }
             for (int j = 0; j < NumExponentials; j++) {
-                const size_t offset = i * NumExponentials + j;
-                lhall[offset] = lhall[offset] / rowtotal;
+                const size_t offset = j * Size + i;
+                lhall[offset] /= total;
             }
         }
 
         // Generate the new proportion estimates
         for(int j = 0; j < NumExponentials; j++) {
-            pcur[j] = 0;
-            for(int i = 0; i < Size; i++) {
-                pcur[j] += lhall[i * NumExponentials + j];
-            }
+            pcur[j] = SumVectorD(&lhall[j * Size], Size);
             pcur[j] /= Size;
         }
 
@@ -388,16 +427,12 @@ int UnmixExponentials(const double* ValuePtr, size_t Size, int NumExponentials, 
 
         pconv = (perr < cfg.rtole);
 
-
         // Generate the mean estimates
         double colsum;
         for (int j = 0; j < NumExponentials; j++) {
-            mcur[j] = 0;
-            colsum = 0;
-            for (int i = 0; i < Size; i++) {
-                mcur[j] += lhall[i * NumExponentials + j] * ValuePtr[i];
-                colsum += lhall[i * NumExponentials + j];
-            }
+            MulVectorD(&lhall[j * Size], ValuePtr, tmpvec, Size);
+            mcur[j] = SumVectorD(tmpvec, Size);
+            colsum = SumVectorD(&lhall[j * Size], Size);
             mcur[j] /= colsum;
         }
 
@@ -430,6 +465,8 @@ int UnmixExponentials(const double* ValuePtr, size_t Size, int NumExponentials, 
     ResultPtr->means_init = mcur;
     ResultPtr->means_final = mprev;
 
+
+    free(tmpvec);
     free(lhall);
 
     return 0;
@@ -470,11 +507,12 @@ int RandomInitExponentialEM(const double* ValuePtr, size_t Size, int NumExponent
     return 0;
 }
 
-double GetExpoLH(double value, double mn){
+double GetExpoLH(double value, double mn)
+{
     if (value < 0){
         return(0.0);
     } else {
-        double LH = (1.0/mn)*pow(2.718281,-(1.0/mn)*value);
+        double LH = (1.0/mn) * pow(2.718281,-(1.0/mn)*value);
         return(LH);
     }
 }
@@ -516,13 +554,13 @@ int ExpectationMaximization(const char* CompatMatrixPtr, size_t NumRows, size_t 
     abdn_old = (double *)malloc(vecsize);
     expected_counts = (double *)malloc(vecsize);
 
-    for (int i = 0; i < NumPattern; i++) {
-        totalreads = totalreads + CountPtr[i];
-    }
+    totalreads = SumVectorI(CountPtr, NumPattern);
 
+    double tmp_counts = totalreads / NumTrans;
+    double tmp_abdn = 1.0 / NumTrans;
     for (int i = 0; i < NumTrans; i++) {
-        abdninit[i] = 1.0/NumTrans;
-        expected_counts[i] = totalreads / NumTrans;
+        abdninit[i] = tmp_abdn;
+        expected_counts[i] = tmp_counts;
     }
 
     memcpy(abdn_new, abdninit, vecsize); // initialize both the previous and current iteration abundances to the initialization values.
@@ -552,13 +590,10 @@ int ExpectationMaximization(const char* CompatMatrixPtr, size_t NumRows, size_t 
                 }
             }
         }
-        for (int j = 0; j < NumTrans; j++){
-            abdn_new[j] = expected_counts[j]/totalreads;
-        }
-        relerr = 0;
-        for(int j = 0; j < NumTrans; j++){
-            relerr += ((abdn_new[j])-(abdn_old[j]))*((abdn_new[j])-(abdn_old[j]));
-        }
+
+        DivVectorValD(expected_counts, totalreads, abdn_new, NumTrans);
+
+        relerr = GetRelErrVectorD(abdn_new, abdn_old, NumTrans);
         relerr /= NumTrans;
         relerr = sqrt(relerr);
         if (cfg.verbose) {
