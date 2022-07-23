@@ -1,0 +1,12 @@
+Package: rgemmulem 
+Type: Package
+Title: GEMMULEM R package
+Version: 1.0-1
+Date: 2022-7-18
+Author: Micah Thornton, Chanhee Park 
+Maintainer: Chanhee Park <parkchanhee@gmail.com>
+Description: A package for...
+             xxxx
+License: GPL (>= 2)
+Depends: R (>= 2.14)
+Collate: rgemmulemWrappers.R

@@ -1,0 +1,9 @@
+# Import required packages
+
+# Load dynamic libraries
+useDynLib(rgemmulem)
+
+# Export functions
+export("rgemmulem_expectationmaximization")
+export("rgemmulem_unmixgaussians")
+export("rgemmulem_unmixexponentials")

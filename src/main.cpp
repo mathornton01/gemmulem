@@ -12,6 +12,18 @@
 
 using namespace std;
 
+struct emsettings{
+    string ifilename; 
+    string ofilename;
+    string samfilename;
+    string valfilename;
+    string type;
+    int kmixt;
+    int maxitr;
+    bool verbose = false; 
+    bool termcat = false;
+    double rtole;
+};
 struct genesamfile{
     vector<string> seqname;
     vector<int> seqlen;
@@ -30,14 +42,21 @@ struct genesamfile{
     vector<vector<string>> tagname;
     vector<vector<string>> tagval;
 };
-void writeemres(string ofilename, vector<double> abdn);
-void writescreenres(vector<double> abdn);
+struct comppatcounts{
+    std::vector<string> compatibilityPattern;
+    std::vector<int> count;
+};
+
+void writeemres(string ofilename, vector<double>& abdn);
+void writescreenres(vector<double>& abdn);
 void printusage(); 
 struct emsettings parseargs(int argc, char ** argv); 
 struct comppatcounts parseinputfile(string ifilename);
 struct comppatcounts parseinputgenesam(string samfilename);
 vector<double> parsegmvinputfile(string valfilename);
 struct genesamfile readgenesamintostruct(string samfilename);
+
+void MakeEMConfig(EMConfig_t* ConfigPtr, struct emsettings* ems);
 
 void printusage(){
     cout << "                                                                           " << endl;
@@ -163,16 +182,18 @@ struct emsettings parseargs(int argc, char ** argv){
     return(ems); 
 }
 
-int main(int argc, char** argv){
-    
-    cout << "                         (GEMMULEM)                         " << endl <<
-            "      General Mixed Multinomial Expectation Maximization    " << endl << 
-            "              Micah Thornton & Chanhee Park (2022)          " << endl << 
-            "                        [Version 1.0]                       " << endl << endl; 
-    
+int main(int argc, char** argv)
+{
+
+    cout <<
+         "                         (GEMMULEM)                         " << endl <<
+         "      General Mixed Multinomial Expectation Maximization    " << endl <<
+         "              Micah Thornton & Chanhee Park (2022)          " << endl <<
+         "                        [Version 1.0]                       " << endl << endl;
+
     // Store the user settings for the EM algorithm in the ems structure. 
     struct emsettings ems = parseargs(argc, argv);
-    
+
     if (ems.verbose){
         cout << "INFO: User Settings - Running GEMMULEM in Verbose Mode (-v)" << endl;
         if (ems.ifilename != ""){
@@ -180,8 +201,8 @@ int main(int argc, char** argv){
                 cout << "INFO: User Settings - Running GEMMULEM in Multinomial De-Coarsening Mode, reading compatibility count input. " << endl;
                 cout << "INFO: File IO - (Pattern File -i), Parsing Input File " << ems.ifilename << "." << endl;
             } else {
-                cout << "ERROR: File IO - (" << ems.ifilename << ") Not Found Please specify a different file location." << endl << endl << endl; 
-                exit(1); 
+                cout << "ERROR: File IO - (" << ems.ifilename << ") Not Found Please specify a different file location." << endl << endl << endl;
+                exit(1);
             }
         } else if (ems.samfilename != ""){
             cout << "INFO: File IO - File Input (GENE SAM File -s), Parsing Input File " << ems.samfilename << "." << endl;
@@ -203,96 +224,131 @@ int main(int argc, char** argv){
     }
 
     if (ems.type=="MN"){
-    if (ems.verbose){
-        cout << "INFO: File IO - Found Compatilbility Patterns " << endl;
-        for (int i = 0; i < cpc.compatibilityPattern.size(); i++){
-            cout << "INFO:      " << to_string(i) << " - " << cpc.compatibilityPattern[i] << " count - " << to_string(cpc.count[i]) << endl; 
-        }
-    }
-
-    // Perform expectation maximization on the compatibility patterns and counts.
-    vector<double> emabundances = expectationmaximization(cpc,ems);
-
-    if (ems.verbose){
-        if (ems.termcat){
-            cout << "INFO: Results - MLE of Proportions" << endl;
-            for (int j = 0; j < cpc.compatibilityPattern[0].size(); j++){
-                cout << "INFO:      " << " Transcript - " << to_string(j) << " EM count: " << to_string(emabundances[j]) << endl; 
+        if (ems.verbose){
+            cout << "INFO: File IO - Found Compatilbility Patterns " << endl;
+            for (int i = 0; i < cpc.compatibilityPattern.size(); i++){
+                cout << "INFO:      " << to_string(i) << " - " << cpc.compatibilityPattern[i] << " count - " << to_string(cpc.count[i]) << endl;
             }
         }
-        cout << "INFO: File IO - Writing Results to Output File " << ems.ofilename << "." << endl;
-    }
 
-    // Write the determined proportions to an output file, or the screen 
+        EMConfig_t EMConfig;
+        EMResult_t Result;
 
-    if (ems.termcat){
-        writescreenres(emabundances);
+        MakeEMConfig(&EMConfig, &ems);
+
+        std::string CompatMatrix;
+
+        for(int i = 0; i < cpc.compatibilityPattern.size(); i++) {
+            CompatMatrix.append(cpc.compatibilityPattern[i]);
+        }
+
+        // Perform expectation maximization on the compatibility patterns and counts.
+        //vector<double> emabundances = expectationmaximization(cpc,ems);
+        ExpectationMaximization(
+                CompatMatrix.data(), /* Compatiblity Matrix */
+                cpc.compatibilityPattern.size(), /* NumRows */
+                cpc.compatibilityPattern[0].size(), /* NumCols */
+                cpc.count.data(), /* CountPtr */
+                cpc.count.size(), /* NumCount */
+                &Result, &EMConfig);
+        vector<double> emabundances(Result.size, 0.0);
+        memcpy(emabundances.data(), Result.values, Result.size * sizeof(double));
+        ReleaseEMResult(&Result);
+
+        if (ems.verbose){
+            if (ems.termcat){
+                cout << "INFO: Results - MLE of Proportions" << endl;
+                for (int j = 0; j < cpc.compatibilityPattern[0].size(); j++){
+                    cout << "INFO:      " << " Transcript - " << to_string(j) << " EM count: " << to_string(emabundances[j]) << endl;
+                }
+            }
+            cout << "INFO: File IO - Writing Results to Output File " << ems.ofilename << "." << endl;
+        }
+
+        // Write the determined proportions to an output file, or the screen
+
+        if (ems.termcat){
+            writescreenres(emabundances);
+            return(0);
+        }
+        writeemres(ems.ofilename,emabundances);
+
+        cout << endl << endl;
         return(0);
-    }
-    writeemres(ems.ofilename,emabundances);
-
-    cout << endl << endl; 
-    return(0);
     } else if (ems.type == "GM") {
-       if (ems.verbose){
-        cout << "INFO: User Settings - Running GEMMULEM in Univariate Gaussian Deconvolution Mode, reading univariate normal values. " << endl;
-        cout << "INFO: File IO - " << to_string(umv.size()) << " values read from file. " << endl;
-       }
-       struct gaussianemresults ger = unmixgaussians(umv, ems.kmixt, ems.maxitr, ems.verbose,ems.rtole);
-       if (ems.verbose){
-        cout << "INFO: EM Algorithm - Gaussians Unmixed in " << to_string(ger.iterstaken) << " Iterations of EM. " << endl;
-       }
-       ofstream ofile(ems.ofilename);
-       string oline;
-       for (int i = 0; i < ger.means_final.size(); i++){
-        oline = to_string(ger.means_final[i]) + "," + to_string(ger.vars_final[i]) + "," + to_string(ger.probs_final[i]);
-        ofile << oline << endl;
-       }
-       if (ems.termcat){
+        if (ems.verbose){
+            cout << "INFO: User Settings - Running GEMMULEM in Univariate Gaussian Deconvolution Mode, reading univariate normal values. " << endl;
+            cout << "INFO: File IO - " << to_string(umv.size()) << " values read from file. " << endl;
+        }
 
-       for (int i = 0; i < ger.means_final.size(); i++){
-        oline = to_string(ger.means_final[i]) + "," + to_string(ger.vars_final[i]) + "," + to_string(ger.probs_final[i]);
-        cout << "INFO:  Results - " << oline << endl;
-       }
-       }
-       ofile.close();
-       cout << "INFO: File IO - Output written on " << ems.ofilename << endl;
+        EMConfig_t EMConfig;
+        EMResultGaussian_t Result;
+
+        MakeEMConfig(&EMConfig, &ems);
+        UnmixGaussians(umv.data(), umv.size(), ems.kmixt, &Result, &EMConfig);
+
+        //struct gaussianemresults ger = unmixgaussians(umv, ems.kmixt, ems.maxitr, ems.verbose,ems.rtole);
+        if (ems.verbose){
+            cout << "INFO: EM Algorithm - Gaussians Unmixed in " << to_string(Result.iterstaken) << " Iterations of EM. " << endl;
+        }
+        ofstream ofile(ems.ofilename);
+        string oline;
+        for (int i = 0; i < Result.numGaussians; i++){
+            oline = to_string(Result.means_final[i]) + "," + to_string(Result.vars_final[i]) + "," + to_string(Result.probs_final[i]);
+            ofile << oline << endl;
+        }
+        if (ems.termcat){
+
+            for (int i = 0; i < Result.numGaussians; i++){
+                oline = to_string(Result.means_final[i]) + "," + to_string(Result.vars_final[i]) + "," + to_string(Result.probs_final[i]);
+                cout << "INFO:  Results - " << oline << endl;
+            }
+        }
+        ofile.close();
+        cout << "INFO: File IO - Output written on " << ems.ofilename << endl;
+        ReleaseEMResultGaussian(&Result);
 
     } else if (ems.type == "EM") {
-       if (ems.verbose){
-        cout << "INFO: User Settings - Running GEMMULEM in Univariate Exponential Deconvolution Mode, reading univariate normal values. " << endl;
-        cout << "INFO: File IO - " << to_string(umv.size()) << " values read from file. " << endl;
-       }
-       struct exponentialEMResults eer = unmixexponentials(umv, ems.kmixt, ems.maxitr, ems.verbose, ems.rtole);
-       //struct gaussianemresults ger = unmixgaussians(umv, ems.kmixt, 1000, ems.verbose);
-       if (ems.verbose){
-        cout << "INFO: EM Algorithm - Exponentials Unmixed in " << to_string(eer.iterstaken) << " Iterations of EM. " << endl;
-       }
-       ofstream ofile(ems.ofilename);
-       string oline;
-       for (int i = 0; i < eer.means_final.size(); i++){
-        oline = to_string(eer.means_final[i]) + ","  + to_string(eer.probs_final[i]);
-        ofile << oline << endl;
-       }
-       if (ems.termcat){
+        if (ems.verbose){
+            cout << "INFO: User Settings - Running GEMMULEM in Univariate Exponential Deconvolution Mode, reading univariate normal values. " << endl;
+            cout << "INFO: File IO - " << to_string(umv.size()) << " values read from file. " << endl;
+        }
 
-       for (int i = 0; i < eer.means_final.size(); i++){
-        oline = to_string(eer.means_final[i])  + "," + to_string(eer.probs_final[i]);
-        cout << "INFO:  Results - " << oline << endl;
-       }
-       }
-       ofile.close();
-       cout << "INFO: File IO - Output written on " << ems.ofilename << endl;
+        EMConfig_t EMConfig;
+        EMResultExponential_t Result;
+
+        MakeEMConfig(&EMConfig, &ems);
+        UnmixExponentials(umv.data(), umv.size(), ems.kmixt, &Result, &EMConfig);
+        //struct exponentialEMResults eer = unmixexponentials(umv, ems.kmixt, ems.maxitr, ems.verbose, ems.rtole);
+        if (ems.verbose){
+            cout << "INFO: EM Algorithm - Exponentials Unmixed in " << to_string(Result.iterstaken) << " Iterations of EM. " << endl;
+        }
+        ofstream ofile(ems.ofilename);
+        string oline;
+        for (int i = 0; i < Result.numExponentials; i++){
+            oline = to_string(Result.means_final[i]) + ","  + to_string(Result.probs_final[i]);
+            ofile << oline << endl;
+        }
+        if (ems.termcat){
+
+            for (int i = 0; i < Result.numExponentials; i++) {
+                oline = to_string(Result.means_final[i])  + "," + to_string(Result.probs_final[i]);
+                cout << "INFO:  Results - " << oline << endl;
+            }
+        }
+        ofile.close();
+        cout << "INFO: File IO - Output written on " << ems.ofilename << endl;
+        ReleaseEMResultExponential(&Result);
     }
 }
 
-void writescreenres(vector<double> abdn){
+void writescreenres(vector<double>& abdn){
     for (int i = 0; i < abdn.size(); i++){
         cout << to_string(abdn[i]) << endl;
     }
 }
 
-void writeemres(string ofilename, vector<double> abdn){
+void writeemres(string ofilename, vector<double>& abdn){
     ofstream ofile(ofilename);
     for (int i = 0; i < abdn.size(); i++){
         ofile << to_string(abdn[i]) << endl;
@@ -485,4 +541,14 @@ struct comppatcounts parseinputgenesam(string samfilename){
      }        
     
     return(cpc);
+}
+
+void MakeEMConfig(EMConfig_t* ConfigPtr, struct emsettings* ems)
+{
+    if (ConfigPtr == NULL || ems == NULL) {
+        return;
+    }
+    ConfigPtr->verbose = ems->verbose;
+    ConfigPtr->maxiter = ems->maxitr;
+    ConfigPtr->rtole = ems->rtole;
 }
