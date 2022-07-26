@@ -19,14 +19,17 @@
 all: lib
 
 lib:
-	ARCHFLAGS="-arch x86_64" python ./setup.py build
+	python ./setup.py build_ext
 
 install:
-	python ./setup.py install --install-lib ./
+	python ./setup.py install
 
 clean:
 	python ./setup.py clean
-	rm -rf build test *.so *.egg-info
+	rm -rf dist build test *.so *.egg-info *.egg
 
-test: lib
-	python ./ht2example.py
+test:
+	python ./gemmulem_example.py -g ../../src/gmm_tst_vals_1.txt
+
+testinstall:
+	python ./setup.py install --install-lib ./
