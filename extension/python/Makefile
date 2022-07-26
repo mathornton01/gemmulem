@@ -22,7 +22,7 @@ lib:
 	python ./setup.py build_ext
 
 install:
-	python ./setup.py install
+	python ./setup.py install --user
 
 clean:
 	python ./setup.py clean
