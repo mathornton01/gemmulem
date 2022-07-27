@@ -13,12 +13,13 @@ This utility can be compiled in linux, mac and Windows environment.
 
 - Linux/Mac environment  
   C/C++ compiler(gcc, clang)  
-  CMake, make  
+  CMake  
 
 - Windows environment  
   Visual Studio 2017 or newer version  
-  CMake, make  
-  or, Windows subsystem for linux
+  CMake  
+  or, Windows subsystem for linux  
+  Rtools(for building R package)
 
 ## Installation
 
@@ -36,14 +37,18 @@ cd build
 cmake ../
 ```
 
-3. Run make command
+3. Build build command
 ```bash
-make
+cmake --build . --config Release
 ```
 
 4. Install GEMMULEM application and library
 ```bash
-sudo make install
+sudo cmake --install . --config Release
+```
+`GEMMULEM` will be installed in `/usr/local/lib` directory by default. Use `--prefix` option to install a different directory.
+```bash
+cmake --install . --config Release --prefix=/home/user/other
 ```
 
 5. (Optional) Build and install R package  
@@ -83,15 +88,16 @@ cmake --build . --config Release
 ```bash
 cmake --install . --config Release
 ```
-GEMMULEM will be installed under "C:\Program Files (x86)\GEMMULEM" directory by default. If you want to install different directory, please use `--prefix` option
+GEMMULEM will be installed in `C:\Program Files (x86)\GEMMULEM` directory by default. Use `--prefix` option to install a different directory.
 ```bash
 cmake --install . --config Release --prefix "D:\OTHER\FOLDER"
 ```
 
 5. (Optional) Build and install R package  
-Change to extension/R directory in the project.
+Change to extension/R directory in the project. We assume `R.exe` is in the `PATH` environment.
 ```bash
-TODO
+cd extension/R
+R CMD INSTALL rgemmulem
 ```
 
 6. (Optional) Build and install python package  
