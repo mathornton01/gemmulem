@@ -20,7 +20,8 @@
 
 library(rgemmulem)
 
-data <- read.csv("ts.csv", header=FALSE, colClasses = c("character", "numeric"));
+fname <- system.file("extdata", "em_tst.csv", package="rgemmulem")
+data <- read.csv(fname, header=FALSE, colClasses = c("character", "numeric"));
 
 
 compats <- unlist(data[1], use.names=FALSE)

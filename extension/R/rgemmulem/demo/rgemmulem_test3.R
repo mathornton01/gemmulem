@@ -20,7 +20,8 @@
 
 library(rgemmulem)
 
-data <- read.csv("gmm_tst_vals_1.txt", header = F)
+fname <- system.file("extdata", "gmm_emm_tst.csv", package="rgemmulem")
+data <- read.csv(fname, header = F)
 values <- unlist(data[1], use.names = F)
 
 result <- rgemmulem_unmixexponentials(values, 3)
