@@ -11,4 +11,4 @@ libem.a:
 	mkdir -p ${RGEMMULEM_SRC}/mk-build && \
 	cd ${RGEMMULEM_SRC}/mk-build && \
 	cmake ${GEMMULEM_ROOT} && \
-	cmake --build . --config Release && cmake --install . --prefix=${RGEMMULEM_SRC}/mk-build
+	cmake --build . --config Release && cmake --install . --prefix ${RGEMMULEM_SRC}/mk-build
