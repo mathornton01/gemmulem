@@ -19,16 +19,15 @@
 # along with GEMMULEM.  If not, see <http://www.gnu.org/licenses/>.
 
 
-from distutils.core import setup, Extension
+from setuptools import setup, Extension
 
-module1 = Extension('pygemmulem',
-#                    define_macros = [('DEBUG', '1')],
-#                    include_dirs=['../../src/lib'],
-#                    libraries=['stdc++'],
-                    libraries=['em'],
-#                    extra_objects = ['../../build/src/lib/libem.a'],
-                    sources = ['pygemmulem.c'])
+module1 = Extension(
+        name = 'pygemmulem',
+        define_macros = [('DEBUG', '1')],
+        libraries=['em'],
+        sources = ['pygemmulem.c']
+)
 
-setup(name = 'pygemmulem',
-        version = '1.0',
-        ext_modules = [module1])
+setup(
+        ext_modules = [module1]
+)
