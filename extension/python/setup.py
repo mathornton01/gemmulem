@@ -18,12 +18,23 @@
 # You should have received a copy of the GNU General Public License
 # along with GEMMULEM.  If not, see <http://www.gnu.org/licenses/>.
 
-
+import sys, os
 from setuptools import setup, Extension
+
+EXTRA_INCLUDE_DIR=None
+EXTRA_LIB_DIR=None
+
+if 'INCLUDE_DIR' in os.environ:
+        EXTRA_INCLUDE_DIR = os.environ['INCLUDE_DIR'].split(';')
+        
+if 'LIB_DIR' in os.environ:
+        EXTRA_LIB_DIR = os.environ['LIB_DIR'].split(';')
 
 module1 = Extension(
         name = 'pygemmulem',
         define_macros = [('DEBUG', '1')],
+        include_dirs = EXTRA_INCLUDE_DIR,
+        library_dirs = EXTRA_LIB_DIR,
         libraries=['em'],
         sources = ['pygemmulem.c']
 )
