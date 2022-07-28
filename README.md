@@ -16,10 +16,11 @@ This utility can be compiled in linux, mac and Windows environment.
   CMake  
 
 - Windows environment  
-  Visual Studio 2017 or newer version  
+  Visual Studio Community 2017 or newer version (with `Desktop development with C++` workload)  
   CMake  
   or, Windows subsystem for linux  
-  Rtools(for building R package)
+  Rtools(for building R package)  
+  python setuptools, build package(for building python package)
 
 ## Installation
 
@@ -61,7 +62,9 @@ R CMD INSTALL rgemmulem
 6. (Optional) Build and install python package  
 Change to extension/python directory in the project.
 ```bash
-TODO
+cd extension/python
+pip install --upgrade build
+./build.sh
 ```
 
 
@@ -103,6 +106,8 @@ R CMD INSTALL rgemmulem
 6. (Optional) Build and install python package  
 Change to extension/python directory in the project.
 ```bash
-TODO
+cd extension/python
+pip install --upgrade build
+build.bat
 ```
 
