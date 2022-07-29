@@ -300,6 +300,7 @@ rgemmulem module provides 3 functions.
   rgemmulem_unmixexponentails(values, num_dist)
   ```
 
+<p align="right">(<a href="#top">back to top</a>)</p>
 
 ## Python APIs
 ```python
@@ -310,21 +311,48 @@ import pygemmulem
   ```python
   pygemmulem.expectationmaximization(compats, counts, verbose=False, maxiter=1000, rtole=0.00001)
   ```
+  `compats` is a list of compatibility pattern strings.  
+  `counts` is a list of count values.
   
+  Returns proportion of counts for each class.
+
 - unmixgaussians
   ```python
   pygemmulem.unmixgaussians(values, num_distribution, verbose=False, maxiter=1000, rtole=0.00001)
   ```
+  `values` is a list or array of values. When you pass an array object, the item of the array must be a double('d') type.
+  ```python
+    import array
+
+    values = array.array('d', [0, 1, 3, 4, ...])
+  ```
   
+  Returns parameters of gaussian distribution.  
+
+    [$\hat{\mu}_1$, $\hat{\mu}_2$, ..., $\hat{\mu}_N$, $\hat{\sigma}^2_1$, $\hat{\sigma}^2_2$, ...,$\hat{\sigma}^2_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$]  
+    
+
 - unmixexponentials
   ```python
   pygemmulem.unmixexponentials(values, num_distribution, verbose=False, maxiter=1000, rtole=0.00001)
   ```
+  `values` is a list or array of values. When you pass an array object, the item of the array must be a double('d') type.
+  ```python
+    import array
+
+    values = array.array('d', [0, 1, 3, 4, ...])
+  ```
+  
+  Returns parameters of exponential distribution.  
+
+    [$\hat{\theta}_1$, $\hat{\theta}_2$, ..., $\hat{\theta}_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$]  
 
 <p align="right">(<a href="#top">back to top</a>)</p>
  
 
 # Contact  
+- Micah Thornton (Micah.Thornton@UTSouthwestern.edu)
+- Chanhee Park (Chanhee.Park@UTSouthwestern.edu)
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
