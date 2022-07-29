@@ -277,14 +277,49 @@ To use gemmulem library, include `EM.h` file to your code and link library with 
   ```
   `ResultPtr` is a pointer to store result. Caller function must provide a valid address of memory, and must call `ReleaseEMResultExponential` function to release a memory allocated in `UnmixExponential`.  
   
+<p align="right">(<a href="#top">back to top</a>)</p>
 
 ## R APIs
 
+```R
+library(rgemmulem)
+```
+rgemmulem module provides 3 functions.  
+- rgemmulem_expectationmaximization  
+  ```R
+  rgemmulem_expectationmaximization(compats, counts)
+  ```
+
+- rgemmulem_unmixgaussians
+  ```R
+  rgemmulem_unmixgaussians(values, num_dist)
+  ```
+
+- rgemmulem_unmixexponentails
+  ```R
+  rgemmulem_unmixexponentails(values, num_dist)
+  ```
+
 
 ## Python APIs
+```python
+import pygemmulem
+```
 
-
-
+- expectationmaximization
+  ```python
+  pygemmulem.expectationmaximization(compats, counts, verbose=False, maxiter=1000, rtole=0.00001)
+  ```
+  
+- unmixgaussians
+  ```python
+  pygemmulem.unmixgaussians(values, num_distribution, verbose=False, maxiter=1000, rtole=0.00001)
+  ```
+  
+- unmixexponentials
+  ```python
+  pygemmulem.unmixexponentials(values, num_distribution, verbose=False, maxiter=1000, rtole=0.00001)
+  ```
 
 <p align="right">(<a href="#top">back to top</a>)</p>
  
