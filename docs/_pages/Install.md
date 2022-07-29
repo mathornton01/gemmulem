@@ -1,6 +1,7 @@
 ---
 title: How to Install and Use GEMMULEM Version 1.0
 tags: installation, gemmulem, expectation, maximization
+permalink: /install/
 layout: post
 ---
 
