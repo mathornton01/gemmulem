@@ -1,15 +1,15 @@
-<div id="top"></div>
-# GeMMulEM (\[Ge\]neral \[M\]ixed \[Mul\]tinomial \[E\]xpectation \[M\]aximization)
+# GeMMulEM (\[Ge\]neral \[M\]ixed \[Mul\]tinomial \[E\]xpectation \[M\]aximization) <div id="top"></div>
 
 This version of the gemmulem program is intended to be very easy to install and use, and therefore only
 requires the GNU make and the CMake utility for its installation. 
 
 To compile this utility from its sources the only tools you will need in addition to make is gcc. 
-This utility can be compiled in linux, mac and Windows environment.
-
+This utility can be compiled in linux, mac and Windows environment.  
+  
+   
 <!-- TABLE OF CONTENTS -->
 <details>
-  <summary>Table of Contents</summary>
+  <summary><b>Table of Contents</b></summary>
   <ol>
     <li>
       <a href="#getting-started">Getting Started</a>
@@ -154,34 +154,40 @@ Specify input file for coarse multinomial mode. The file contains compatibility 
 _Both -g/e and -i may not be simultaneously specified_  
 Example file with 4 category class  
 
-  > `1011,40`  
-  > `1100,45`  
-  > `0010,30`  
+  ``` 
+  1011,40   
+  1100,45  
+  0010,30
+  ```
 
 - `-g/-G/--GFILE <input filename>`  
 Specify input file for Gaussian mixture deconvolution mode. The file contains a list of values comming from a mixture of univariate gaussians.  
 _Both -g/e and -i may not be simultaneously specified_  
 
-  > `-2.64566122335398`  
-  > `-24.9939621808671`  
-  > `-5.25417008181354`  
-  > `-27.4150444391751`  
-  > `-2.23999093704485`  
-  > `-0.644893131269661`  
-  > `-16.9420712792649`  
-  > `-17.359643633111`  
+  ```
+  -2.64566122335398
+  -24.9939621808671
+  -5.25417008181354
+  27.4150444391751
+  -2.23999093704485
+  -0.644893131269661
+  16.9420712792649
+  17.359643633111
+  ```
 
 - `-e/-E/--EFILE <input filename>`  
 Specify input file for Exponential mixture deconvolution mode. The file contains a list of values comming from a mixture of univariate exponentials.  
 _Both -g/e and -i may not be simultaneously specified._  
 
-  > `-5.01966537271658`  
-  > `-7.4061877009785`  
-  > `-2.15413929205554`  
-  > `-17.0618868673418`  
-  > `0.225835191938541`  
-  > `-16.6095956294893`  
-  > `-18.4864630074395`  
+  ```
+  -5.01966537271658
+  -7.4061877009785
+  -2.15413929205554
+  -17.0618868673418
+  0.225835191938541
+  -16.6095956294893
+  -18.4864630074395
+  ```
 
 - `-o/-O/--OFILE <output filename>`  
 Specify output file. By default, the timestamp is used as the file name.  
@@ -216,6 +222,7 @@ gemmulem -i sim.tsv -o abn.txt
 
 
 ## C/C++ APIs
+To use gemmulem library, include `EM.h` file to your code and link library with option `-lem`. If you installed gemmulem library in a location other than the default directory, add `-I 'installed directory'/include` and `-L 'installed directory'/lib` options to compiler option.  
 
 ## R APIs
 
