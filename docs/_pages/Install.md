@@ -156,7 +156,7 @@ build.bat
 gemmulem [options]
 ```
 ### options
-- Input Multinomial Filename `-i/-I/--IFILE <input filename>`  
+`-i/-I/--IFILE <input filename>`  
 Specify input file for coarse multinomial mode. The file contains compatibility patterns and counts. Each columns are seperated by comma(,). First column is a compatiblity pattern and second is a count.  
 _Both -g/e and -i may not be simultaneously specified_  
 Example file with 4 category class  
@@ -167,7 +167,7 @@ Example file with 4 category class
   0010,30
   ```
 
-- Input Gaussian Filename `-g/-G/--GFILE <input filename>`  
+`-g/-G/--GFILE <input filename>`  
 Specify input file for Gaussian mixture deconvolution mode. The file contains a list of values comming from a mixture of univariate gaussians.  
 _Both -g/e and -i may not be simultaneously specified_  
 
@@ -182,7 +182,7 @@ _Both -g/e and -i may not be simultaneously specified_
   17.359643633111
   ```
 
-- Input Exponential Filename `-e/-E/--EFILE <input filename>`  
+`-e/-E/--EFILE <input filename>`  
 Specify input file for Exponential mixture deconvolution mode. The file contains a list of values comming from a mixture of univariate exponentials.  
 _Both -g/e and -i may not be simultaneously specified._  
 
@@ -196,27 +196,27 @@ _Both -g/e and -i may not be simultaneously specified._
   -18.4864630074395
   ```
 
-- Output Filename `-o/-O/--OFILE <output filename>`  
+`-o/-O/--OFILE <output filename>`  
 Specify output file. By default, the timestamp is used as the file name.  
 
-- Relative Tolerance `-r/-R/--RTOLE <relative tolerance>`  
+`-r/-R/--RTOLE <relative tolerance>`  
 EM Stopping Criteria.  
 Default: `0.00001`  
 
-- Verbosity `-v/-V/--VERBO`  
+`-v/-V/--VERBO`  
 Display of status and info messages.  
 
-- *k*-mixture `-k/-K/--KMIXT <value>`  
+`-k/-K/--KMIXT <value>`  
 Number of mixture distribution. Valid only with `-e/-g` option.  
 Default: 3  
 
-- Terminal `-t/-T/--TERMI`  
+`-t/-T/--TERMI`  
 Show results in the terminal.  
 
-- Seed `-c/-C/--CSEED <value>`  
+`-c/-C/--CSEED <value>`  
 Seed for random number generator.
 
-- Max Iterations `-m/-M/--MAXIT <value>`  
+`-m/-M/--MAXIT <value>`  
 Maximum number of EM iteration.  
 Default: 1000  
 
