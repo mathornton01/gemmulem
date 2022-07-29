@@ -220,13 +220,69 @@ Run coarse multinomial mode and write results to `abn.txt` file.
 gemmulem -i sim.tsv -o abn.txt
 ```
 
+<p align="right">(<a href="#top">back to top</a>)</p>
+
 
 ## C/C++ APIs
 To use gemmulem library, include `EM.h` file to your code and link library with option `-lem`. If you installed gemmulem library in a location other than the default directory, add `-I 'installed directory'/include` and `-L 'installed directory'/lib` options to compiler option.  
 
+- ExpectationMaximization
+  ```C
+  int ExpectationMaximization(
+        const char* CompatMatrixPtr, 
+        size_t NumRows, 
+        size_t NumCols, 
+        const int* CountPtr, 
+        size_t NumCount, 
+        EMResult_t* ResultPtr, 
+        EMConfig_t* ConfigPtr
+        );
+  ```
+  `CompatMatrixPtr` is a pointer to compatibility matrix. Each row in the matrix is concatenated into a single row so that the pointer points to the single array.  
+  For example, there are 3 values with 4 classes,  
+  ```
+  0100,40
+  1001,20
+  0101,10
+  ```
+  `CompatMatrixPtr` is an array of `'010010010101'`.  
+  
+  `CountPtr` is an array of values.  
+  
+  `ResultPtr` is a pointer to store result. Caller function must provide a valid address of memory, and must call `ReleaseEMResult` function to release a memory allocated in `ExpectationMaximization`.  
+
+  
+- UnmixGaussians
+  ```C
+  int UnmixGaussians(
+        const double* ValuePtr,
+        size_t Size,
+        int NumGaussians,
+        EMResultGaussian_t* ResultPtr,
+        EMConfig_t* ConfigPtr
+        );
+  ```  
+  `ResultPtr` is a pointer to store result. Caller function must provide a valid address of memory, and must call `ReleaseEMResultGaussian` function to release a memory allocated in `UnmixGaussians`.  
+  
+
+- UnmixExponential
+  ```C
+  int UnmixExponentials(
+        const double* ValuePtr,
+        size_t Size,
+        int NumExponentials,
+        EMResultExponential_t* ResultPtr,
+        EMConfig_t* ConfigPtr
+        );
+  ```
+  `ResultPtr` is a pointer to store result. Caller function must provide a valid address of memory, and must call `ReleaseEMResultExponential` function to release a memory allocated in `UnmixExponential`.  
+  
+
 ## R APIs
 
+
 ## Python APIs
+
 
 
 
