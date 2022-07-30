@@ -8,7 +8,6 @@ This utility can be compiled in linux, mac and Windows environment.
   
    
 <!-- TABLE OF CONTENTS -->
-<details>
   <summary><b>Table of Contents</b></summary>
   <ol>
     <li>
@@ -31,7 +30,6 @@ This utility can be compiled in linux, mac and Windows environment.
     </ul>
     <li><a href="#contact">Contact</a></li>
   </ol>
-</details>
 
 # Getting Started
 
@@ -284,21 +282,40 @@ To use gemmulem library, include `EM.h` file to your code and link library with 
 ```R
 library(rgemmulem)
 ```
-rgemmulem module provides 3 functions.  
+rgemmulem package includes demo code.
+```R
+demo(rgemmulem_test1) # demo code for expectationmaximiazation
+demo(rgemmulem_test2) # demo code for unmixgaussians
+demo(rgemmulem_test3) # demo code for unmixexponentials
+```
+
 - rgemmulem_expectationmaximization  
   ```R
   rgemmulem_expectationmaximization(compats, counts)
   ```
+  `compats` is a vector of compatibility pattern strings.  
+  `count` is a vector of integer.
+
+  Returns double vector which is proportion of counts for each class.
 
 - rgemmulem_unmixgaussians
   ```R
   rgemmulem_unmixgaussians(values, num_dist)
   ```
+  `values` is a vector of values.  
+
+  Returns parameters of gaussian distribution.  
+ 
+  > [$\hat{\mu}_1$, $\hat{\mu}_2$, ..., $\hat{\mu}_N$, $\hat{\sigma}^2_1$, $\hat{\sigma}^2_2$, ...,$\hat{\sigma}^2_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$] 
 
 - rgemmulem_unmixexponentails
   ```R
   rgemmulem_unmixexponentails(values, num_dist)
   ```
+
+  Returns parameters of exponential distribution.  
+
+  > [$\hat{\theta}_1$, $\hat{\theta}_2$, ..., $\hat{\theta}_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$]  
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
@@ -329,7 +346,7 @@ import pygemmulem
   
   Returns parameters of gaussian distribution.  
 
-    [$\hat{\mu}_1$, $\hat{\mu}_2$, ..., $\hat{\mu}_N$, $\hat{\sigma}^2_1$, $\hat{\sigma}^2_2$, ...,$\hat{\sigma}^2_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$]  
+  > [$\hat{\mu}_1$, $\hat{\mu}_2$, ..., $\hat{\mu}_N$, $\hat{\sigma}^2_1$, $\hat{\sigma}^2_2$, ...,$\hat{\sigma}^2_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$]  
     
 
 - unmixexponentials
@@ -345,7 +362,7 @@ import pygemmulem
   
   Returns parameters of exponential distribution.  
 
-    [$\hat{\theta}_1$, $\hat{\theta}_2$, ..., $\hat{\theta}_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$]  
+  > [$\hat{\theta}_1$, $\hat{\theta}_2$, ..., $\hat{\theta}_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$]  
 
 <p align="right">(<a href="#top">back to top</a>)</p>
  
