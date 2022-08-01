@@ -1,11 +1,4 @@
----
-title: How to Install and Use GEMMULEM Version 1.0
-tags: installation, gemmulem, expectation, maximization
-permalink: /install/
-layout: post
----
-
-# GeMMulEM (\[Ge\]neral \[M\]ixed \[Mul\]tinomial \[E\]xpectation \[M\]aximization)
+# GeMMulEM (\[Ge\]neral \[M\]ixed \[Mul\]tinomial \[E\]xpectation \[M\]aximization) <div id="top"></div>
 
 This version of the gemmulem program is intended to be very easy to install and use, and therefore only
 requires the GNU make and the CMake utility for its installation. 
@@ -15,7 +8,6 @@ This utility can be compiled in linux, mac and Windows environment.
   
    
 <!-- TABLE OF CONTENTS -->
-<details>
   <summary><b>Table of Contents</b></summary>
   <ol>
     <li>
@@ -38,7 +30,6 @@ This utility can be compiled in linux, mac and Windows environment.
     </ul>
     <li><a href="#contact">Contact</a></li>
   </ol>
-</details>
 
 # Getting Started
 
@@ -73,7 +64,7 @@ cd build
 cmake ../
 ```
 
-3. Build build command
+3. Run build command
 ```bash
 cmake --build . --config Release
 ```
@@ -156,7 +147,7 @@ build.bat
 gemmulem [options]
 ```
 ### options
-`-i/-I/--IFILE <input filename>`  
+- `-i/-I/--IFILE <input filename>`  
 Specify input file for coarse multinomial mode. The file contains compatibility patterns and counts. Each columns are seperated by comma(,). First column is a compatiblity pattern and second is a count.  
 _Both -g/e and -i may not be simultaneously specified_  
 Example file with 4 category class  
@@ -167,7 +158,7 @@ Example file with 4 category class
   0010,30
   ```
 
-`-g/-G/--GFILE <input filename>`  
+- `-g/-G/--GFILE <input filename>`  
 Specify input file for Gaussian mixture deconvolution mode. The file contains a list of values comming from a mixture of univariate gaussians.  
 _Both -g/e and -i may not be simultaneously specified_  
 
@@ -182,7 +173,7 @@ _Both -g/e and -i may not be simultaneously specified_
   17.359643633111
   ```
 
-`-e/-E/--EFILE <input filename>`  
+- `-e/-E/--EFILE <input filename>`  
 Specify input file for Exponential mixture deconvolution mode. The file contains a list of values comming from a mixture of univariate exponentials.  
 _Both -g/e and -i may not be simultaneously specified._  
 
@@ -196,27 +187,27 @@ _Both -g/e and -i may not be simultaneously specified._
   -18.4864630074395
   ```
 
-`-o/-O/--OFILE <output filename>`  
+- `-o/-O/--OFILE <output filename>`  
 Specify output file. By default, the timestamp is used as the file name.  
 
-`-r/-R/--RTOLE <relative tolerance>`  
+- `-r/-R/--RTOLE <relative tolerance>`  
 EM Stopping Criteria.  
 Default: `0.00001`  
 
-`-v/-V/--VERBO`  
+- `-v/-V/--VERBO`  
 Display of status and info messages.  
 
-`-k/-K/--KMIXT <value>`  
+- `-k/-K/--KMIXT <value>`  
 Number of mixture distribution. Valid only with `-e/-g` option.  
 Default: 3  
 
-`-t/-T/--TERMI`  
+- `-t/-T/--TERMI`  
 Show results in the terminal.  
 
-`-c/-C/--CSEED <value>`  
+- `-c/-C/--CSEED <value>`  
 Seed for random number generator.
 
-`-m/-M/--MAXIT <value>`  
+- `-m/-M/--MAXIT <value>`  
 Maximum number of EM iteration.  
 Default: 1000  
 
@@ -284,19 +275,101 @@ To use gemmulem library, include `EM.h` file to your code and link library with 
   ```
   `ResultPtr` is a pointer to store result. Caller function must provide a valid address of memory, and must call `ReleaseEMResultExponential` function to release a memory allocated in `UnmixExponential`.  
   
+<p align="right">(<a href="#top">back to top</a>)</p>
 
 ## R APIs
 
+```R
+library(rgemmulem)
+```
+rgemmulem package includes demo code.
+```R
+demo(rgemmulem_test1) # demo code for expectationmaximiazation
+demo(rgemmulem_test2) # demo code for unmixgaussians
+demo(rgemmulem_test3) # demo code for unmixexponentials
+```
+
+- rgemmulem_expectationmaximization  
+  ```R
+  rgemmulem_expectationmaximization(compats, counts)
+  ```
+  `compats` is a vector of compatibility pattern strings.  
+  `count` is a vector of integer.
+
+  Returns double vector which is proportion of counts for each class.
+
+- rgemmulem_unmixgaussians
+  ```R
+  rgemmulem_unmixgaussians(values, num_dist)
+  ```
+  `values` is a vector of values.  
+
+  Returns parameters of gaussian distribution.  
+ 
+  > [ $\hat{\mu}_1$, $\hat{\mu}_2$, ..., $\hat{\mu}_N$, $\hat{\sigma}^2_1$, $\hat{\sigma}^2_2$, ..., $\hat{\sigma}^2_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$] 
+
+- rgemmulem_unmixexponentails
+  ```R
+  rgemmulem_unmixexponentails(values, num_dist)
+  ```
+
+  Returns parameters of exponential distribution.  
+
+  > [ $\hat{\theta}_1$, $\hat{\theta}_2$, ..., $\hat{\theta}_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$]  
+
+<p align="right">(<a href="#top">back to top</a>)</p>
 
 ## Python APIs
+```python
+import pygemmulem
+```
 
+- expectationmaximization
+  ```python
+  pygemmulem.expectationmaximization(compats, counts, verbose=False, maxiter=1000, rtole=0.00001)
+  ```
+  `compats` is a list of compatibility pattern strings.  
+  `counts` is a list of count values.
+  
+  Returns proportion of counts for each class.
 
+- unmixgaussians
+  ```python
+  pygemmulem.unmixgaussians(values, num_distribution, verbose=False, maxiter=1000, rtole=0.00001)
+  ```
+  `values` is a list or array of values. When you pass an array object, the item of the array must be a double('d') type.
+  ```python
+    import array
 
+    values = array.array('d', [0, 1, 3, 4, ...])
+  ```
+  
+  Returns parameters of gaussian distribution.  
+
+  > [ $\hat{\mu}_1$, $\hat{\mu}_2$, ..., $\hat{\mu}_N$, $\hat{\sigma}^2_1$, $\hat{\sigma}^2_2$, ..., $\hat{\sigma}^2_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$]  
+    
+
+- unmixexponentials
+  ```python
+  pygemmulem.unmixexponentials(values, num_distribution, verbose=False, maxiter=1000, rtole=0.00001)
+  ```
+  `values` is a list or array of values. When you pass an array object, the item of the array must be a double('d') type.
+  ```python
+    import array
+
+    values = array.array('d', [0, 1, 3, 4, ...])
+  ```
+  
+  Returns parameters of exponential distribution.  
+
+  > [ $\hat{\theta}_1$, $\hat{\theta}_2$, ..., $\hat{\theta}_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$]  
 
 <p align="right">(<a href="#top">back to top</a>)</p>
  
 
 # Contact  
+- Micah Thornton (Micah.Thornton@UTSouthwestern.edu)
+- Chanhee Park (Chanhee.Park@UTSouthwestern.edu)
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
