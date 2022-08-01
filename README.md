@@ -64,7 +64,7 @@ cd build
 cmake ../
 ```
 
-3. Build build command
+3. Run build command
 ```bash
 cmake --build . --config Release
 ```
@@ -306,7 +306,7 @@ demo(rgemmulem_test3) # demo code for unmixexponentials
 
   Returns parameters of gaussian distribution.  
  
-  > [$\hat{\mu}_1$, $\hat{\mu}_2$, ..., $\hat{\mu}_N$, $\hat{\sigma}^2_1$, $\hat{\sigma}^2_2$, ...,$\hat{\sigma}^2_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$] 
+  > [ $\hat{\mu}_1$, $\hat{\mu}_2$, ..., $\hat{\mu}_N$, $\hat{\sigma}^2_1$, $\hat{\sigma}^2_2$, ...,$\hat{\sigma}^2_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$] 
 
 - rgemmulem_unmixexponentails
   ```R
@@ -315,7 +315,7 @@ demo(rgemmulem_test3) # demo code for unmixexponentials
 
   Returns parameters of exponential distribution.  
 
-  > [$\hat{\theta}_1$, $\hat{\theta}_2$, ..., $\hat{\theta}_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$]  
+  > [ $\hat{\theta}_1$, $\hat{\theta}_2$, ..., $\hat{\theta}_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$]  
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
@@ -346,7 +346,7 @@ import pygemmulem
   
   Returns parameters of gaussian distribution.  
 
-  > [$\hat{\mu}_1$, $\hat{\mu}_2$, ..., $\hat{\mu}_N$, $\hat{\sigma}^2_1$, $\hat{\sigma}^2_2$, ...,$\hat{\sigma}^2_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$]  
+  > [ $\hat{\mu}_1$, $\hat{\mu}_2$, ..., $\hat{\mu}_N$, $\hat{\sigma}^2_1$, $\hat{\sigma}^2_2$, ...,$\hat{\sigma}^2_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$]  
     
 
 - unmixexponentials
@@ -362,7 +362,7 @@ import pygemmulem
   
   Returns parameters of exponential distribution.  
 
-  > [$\hat{\theta}_1$, $\hat{\theta}_2$, ..., $\hat{\theta}_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$]  
+  > [ $\hat{\theta}_1$, $\hat{\theta}_2$, ..., $\hat{\theta}_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$]  
 
 <p align="right">(<a href="#top">back to top</a>)</p>
  
