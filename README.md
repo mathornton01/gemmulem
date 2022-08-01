@@ -306,7 +306,7 @@ demo(rgemmulem_test3) # demo code for unmixexponentials
 
   Returns parameters of gaussian distribution.  
  
-  > [ $\hat{\mu}_1$, $\hat{\mu}_2$, ..., $\hat{\mu}_N$, $\hat{\sigma}^2_1$, $\hat{\sigma}^2_2$, ...,$\hat{\sigma}^2_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$] 
+  > [ $\hat{\mu}_1$, $\hat{\mu}_2$, ..., $\hat{\mu}_N$, $\hat{\sigma}^2_1$, $\hat{\sigma}^2_2$, ..., $\hat{\sigma}^2_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$] 
 
 - rgemmulem_unmixexponentails
   ```R
@@ -346,7 +346,7 @@ import pygemmulem
   
   Returns parameters of gaussian distribution.  
 
-  > [ $\hat{\mu}_1$, $\hat{\mu}_2$, ..., $\hat{\mu}_N$, $\hat{\sigma}^2_1$, $\hat{\sigma}^2_2$, ...,$\hat{\sigma}^2_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$]  
+  > [ $\hat{\mu}_1$, $\hat{\mu}_2$, ..., $\hat{\mu}_N$, $\hat{\sigma}^2_1$, $\hat{\sigma}^2_2$, ..., $\hat{\sigma}^2_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$]  
     
 
 - unmixexponentials
