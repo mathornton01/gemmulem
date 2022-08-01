@@ -80,6 +80,46 @@ static PyObject* create_darray_object(size_t length)
     return pValue;
 }
 
+static PyObject* create_darray_from_list(PyObject* InObject)
+{
+    const char* array_func_name = "array";
+
+    PyObject* pArrayModule = PyImport_ImportModule("array");
+    PyObject* pValue = NULL;
+
+    if (!pArrayModule) {
+        DEBUGLOG("Can't load array module\n");
+        return NULL;
+    }
+
+    // get array class constructor
+    PyObject* pArrayClass = PyObject_GetAttrString(pArrayModule, array_func_name);
+
+    if (pArrayClass && PyCallable_Check(pArrayClass)) {
+        PyObject* pArgs = PyTuple_New(2);
+        PyTuple_SetItem(pArgs, 0, PyUnicode_FromString("d"));
+        PyTuple_SetItem(pArgs, 1, InObject);
+
+        pValue = PyObject_CallObject(pArrayClass, pArgs);
+
+        if (pValue == NULL) {
+            PyErr_Print();
+        }
+
+        Py_DECREF(pArgs);
+    } else {
+        if (PyErr_Occurred()) {
+            PyErr_Print();
+        }
+        DEBUGLOG("Cannot find function \"%s\"\n", array_func_name);
+    }
+
+    Py_XDECREF(pArrayClass);
+    Py_DECREF(pArrayModule);
+
+    return pValue;
+}
+
 
 /**
  * gemmulem.expectationmaximization(compatibilitymatrix, counts, verbose, maxiter, rtole)
@@ -235,14 +275,26 @@ static PyObject* pygemmulem_unmixexponentials(PyObject* self, PyObject* args, Py
 
     // create bufferview to value object 
     if (!PyObject_CheckBuffer(valueobj)) {
-        DEBUGLOG("Doesn't support buffer object\n");
-        // FIXME: TypeError?
-        Py_RETURN_NONE;
+        // check value object type. If a list, convert to array.array
+        if (PyList_Check(valueobj)) {
+            valueobj = create_darray_from_list(valueobj);
+
+            if (valueobj == NULL) {
+                DEBUGLOG("can't cast to list array object\n");
+                Py_RETURN_NONE;
+            }
+        } else {
+            DEBUGLOG("doesn't support buffer object\n");
+            Py_RETURN_NONE;
+        }
+    } else {
+        Py_INCREF(valueobj);
     }
 
     Py_buffer bufferview;
     if (PyObject_GetBuffer(valueobj, &bufferview, PyBUF_SIMPLE) < 0) {
         DEBUGLOG("Can't get buffer\n");
+        Py_DECREF(valueobj);
         Py_RETURN_NONE;
     }
 
@@ -269,6 +321,7 @@ static PyObject* pygemmulem_unmixexponentials(PyObject* self, PyObject* args, Py
     if (PyObject_GetBuffer(array, &resultview, PyBUF_WRITABLE) < 0) {
         DEBUGLOG("Can't get resultivew\n");
         ReleaseEMResultExponential(&result);
+        Py_DECREF(valueobj);
         Py_RETURN_NONE;
     }
 
@@ -278,6 +331,7 @@ static PyObject* pygemmulem_unmixexponentials(PyObject* self, PyObject* args, Py
 
     PyBuffer_Release(&resultview);
     ReleaseEMResultExponential(&result);
+    Py_DECREF(valueobj);
 
     if (array) {
         return array;
@@ -318,16 +372,28 @@ static PyObject* pygemmulem_unmixgaussians(PyObject* self, PyObject* args, PyObj
     DEBUGLOG("rtole: %f\n", rtole);
 
     // using Buffer Protocol
-    //
     if (!PyObject_CheckBuffer(values)) {
-        DEBUGLOG("doesn't support buffer object\n");
-        Py_RETURN_NONE;
+        // check value object type. If a list, convert to array.array
+        if (PyList_Check(values)) {
+            values = create_darray_from_list(values);
+
+            if (values == NULL) {
+                DEBUGLOG("can't cast to list array object\n");
+                Py_RETURN_NONE;
+            }
+        } else {
+            DEBUGLOG("doesn't support buffer object\n");
+            Py_RETURN_NONE;
+        }
+    } else {
+        Py_INCREF(values);
     }
 
     Py_buffer bufferview;
 
     if (PyObject_GetBuffer(values, &bufferview, PyBUF_SIMPLE) < 0) {
         DEBUGLOG("Can't get buffer\n");
+        Py_DECREF(values);
         Py_RETURN_NONE;
     }
 
@@ -353,6 +419,7 @@ static PyObject* pygemmulem_unmixgaussians(PyObject* self, PyObject* args, PyObj
     if (PyObject_GetBuffer(array, &resultview, PyBUF_WRITABLE) < 0) {
         DEBUGLOG("Can't get resultview\n");
         ReleaseEMResultGaussian(&result);
+        Py_DECREF(values);
         Py_RETURN_NONE;
     }
 
@@ -364,6 +431,8 @@ static PyObject* pygemmulem_unmixgaussians(PyObject* self, PyObject* args, PyObj
     PyBuffer_Release(&resultview);
 
     ReleaseEMResultGaussian(&result);
+    Py_DECREF(values);
+
     if (array) {
         return array;
     }
