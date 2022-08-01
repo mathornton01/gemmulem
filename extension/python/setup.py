@@ -32,7 +32,7 @@ if 'LIB_DIR' in os.environ:
 
 module1 = Extension(
         name = 'pygemmulem',
-        define_macros = [('DEBUG', '1')],
+#        define_macros = [('DEBUG', '1')],
         include_dirs = EXTRA_INCLUDE_DIR,
         library_dirs = EXTRA_LIB_DIR,
         libraries=['em'],

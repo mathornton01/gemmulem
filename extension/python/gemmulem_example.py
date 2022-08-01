@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
 #
 # Copyright 2022, Micah Thornton and Chanhee Park <parkchanhee@gmail.com>
