@@ -1,4 +1,4 @@
-# GeMMulEM (\[Ge\]neral \[M\]ixed \[Mul\]tinomial \[E\]xpectation \[M\]aximization) <div id="top"></div>
+# Downloading and Installing GeMMulEM v 1.0 (\[Ge\]neral \[M\]ixed \[Mul\]tinomial \[E\]xpectation \[M\]aximization)
 
 This version of the gemmulem program is intended to be very easy to install and use, and therefore only
 requires the GNU make and the CMake utility for its installation. 
