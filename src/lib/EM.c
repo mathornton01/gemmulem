@@ -577,7 +577,12 @@ int ExpectationMaximization(const char* CompatMatrixPtr, size_t NumRows, size_t 
     abdn_old = (double *)malloc(vecsize);
     expected_counts = (double *)malloc(vecsize);
 
-    totalreads = SumVectorI(CountPtr, NumPattern);
+    //totalreads = SumVectorI(CountPtr, NumPattern); 
+    // (09-2022: MT:  I had to implement these by hand to get this to work correctly)
+    totalreads = 0; 
+    for (int k = 0; k < NumPattern; k++){
+        totalreads += CountPtr[k];
+    }
 
     double tmp_counts = totalreads / NumTrans;
     double tmp_abdn = 1.0 / NumTrans;
@@ -614,9 +619,18 @@ int ExpectationMaximization(const char* CompatMatrixPtr, size_t NumRows, size_t 
             }
         }
 
-        DivVectorValD(expected_counts, totalreads, abdn_new, NumTrans);
+       // DivVectorValD(expected_counts, totalreads, abdn_new, NumTrans);
+       // (09-2022: MT:  Again I had to implement this in order to avoid a segmentation fault for some reason)
+       for (int k = 0; k < NumTrans; k++){
+        abdn_new[k] = expected_counts[k]/totalreads;
+       }
 
-        relerr = GetRelErrVectorD(abdn_new, abdn_old, NumTrans);
+        //relerr = GetRelErrVectorD(abdn_new, abdn_old, NumTrans);
+        // (09-2022: MT:  This was the last one that seemed to be problematic)
+        relerr = 0;
+        for (int k = 0; k < NumTrans; k++){
+            relerr += (abdn_new[k]-abdn_old[k])*(abdn_new[k]-abdn_old[k]);
+        }
         relerr /= NumTrans;
         relerr = sqrt(relerr);
         if (cfg.verbose) {
