@@ -80,7 +80,7 @@ void MakeEMConfig(EMConfig_t* ConfigPtr, struct emsettings* ems);
 void printusage(){
     cout << "                                                                           " << endl;
     cout << "---------------------------------------------------------------------------" << endl; 
-    cout << "|               GEMMULEM (Version 1.0) Thornton & Park                    |" << endl;
+    cout << "|               GEMMULEM (Version 1.1) Thornton & Park                    |" << endl;
     cout << "|                              (HELP)                                     |" << endl;
     cout << "|                                                                         |" << endl;  
     cout << "|[-i/-I/--IFILE] <input filename>: Specify Input (CSV: \"pattern,count\")   |" << endl; 
@@ -208,7 +208,7 @@ int main(int argc, char** argv)
          "                         (GEMMULEM)                         " << endl <<
          "      General Mixed Multinomial Expectation Maximization    " << endl <<
          "              Micah Thornton & Chanhee Park (2022)          " << endl <<
-         "                        [Version 1.0]                       " << endl << endl;
+         "                        [Version 1.1]                       " << endl << endl;
 
     // Store the user settings for the EM algorithm in the ems structure. 
     struct emsettings ems = parseargs(argc, argv);
