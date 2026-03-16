@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Pearson EM — Distribution Discovery Animation</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a1a; color: #e0e0e0; font-family: 'Consolas', 'Menlo', monospace; }
+.container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+h1 { text-align: center; font-size: 1.6em; margin: 10px 0 5px; color: #7af; }
+.subtitle { text-align: center; font-size: 0.85em; color: #888; margin-bottom: 15px; }
+.controls { display: flex; gap: 12px; align-items: center; justify-content: center; margin: 10px 0; flex-wrap: wrap; }
+.controls button { background: #223; border: 1px solid #445; color: #adf; padding: 6px 16px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 0.85em; }
+.controls button:hover { background: #334; }
+.controls button.active { background: #345; border-color: #7af; }
+.controls select, .controls input { background: #112; border: 1px solid #445; color: #ccc; padding: 5px 8px; border-radius: 4px; font-family: inherit; }
+canvas { display: block; margin: 0 auto; border: 1px solid #223; border-radius: 6px; }
+.info-bar { display: flex; justify-content: space-between; max-width: 900px; margin: 10px auto; font-size: 0.8em; color: #888; }
+.info-bar .stat { color: #7af; }
+.legend { display: flex; gap: 20px; justify-content: center; margin: 8px 0; font-size: 0.8em; }
+.legend span { display: flex; align-items: center; gap: 5px; }
+.legend .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.comp-cards { display: flex; gap: 15px; justify-content: center; margin: 10px 0; flex-wrap: wrap; }
+.comp-card { background: #111828; border: 1px solid #223; border-radius: 6px; padding: 10px 15px; min-width: 200px; font-size: 0.78em; }
+.comp-card h3 { font-size: 0.95em; margin-bottom: 5px; }
+.comp-card .type { font-weight: bold; }
+</style>
+</head>
+<body>
+<div class="container">
+<h1>🧬 GEMMULEM Pearson EM — Distribution Discovery</h1>
+<p class="subtitle">Watch the EM algorithm discover the underlying distribution shapes from raw data</p>
+
+<div class="controls">
+  <label>Scenario:
+    <select id="scenario">
+      <option value="gauss2">Two Gaussians</option>
+      <option value="gauss_exp">Gaussian + Exponential</option>
+      <option value="gauss3">Three Gaussians</option>
+      <option value="bimodal_skew">Bimodal Skewed</option>
+      <option value="heavy_tail">Normal + Heavy-tailed</option>
+    </select>
+  </label>
+  <label>Components: <input type="number" id="numK" value="2" min="1" max="5" style="width:50px"></label>
+  <button id="btnReset" onclick="resetSim()">Reset</button>
+  <button id="btnStep" onclick="stepOnce()">Step</button>
+  <button id="btnPlay" onclick="togglePlay()">▶ Play</button>
+  <button id="btnFast" onclick="fastForward()">⏩ Converge</button>
+  <label>Speed: <input type="range" id="speed" min="1" max="20" value="5" style="width:80px"></label>
+</div>
+
+<canvas id="mainCanvas" width="900" height="400"></canvas>
+
+<div class="info-bar">
+  <span>Iteration: <span class="stat" id="iterNum">0</span></span>
+  <span>Log-Likelihood: <span class="stat" id="llVal">—</span></span>
+  <span>ΔLL: <span class="stat" id="deltaLL">—</span></span>
+  <span>Status: <span class="stat" id="status">Ready</span></span>
+</div>
+
+<div class="legend" id="legend"></div>
+<div class="comp-cards" id="compCards"></div>
+</div>
+
+<script>
+const C = document.getElementById('mainCanvas');
+const ctx = C.getContext('2d');
+const COLORS = ['#ff6b6b','#4ecdc4','#ffe66d','#a29bfe','#fd79a8'];
+const COLORS_DIM = ['#ff6b6b44','#4ecdc444','#ffe66d44','#a29bfe44','#fd79a844'];
+
+/* ===== Distributions ===== */
+function normalPdf(x, mu, sigma) {
+    const z = (x - mu) / sigma;
+    return Math.exp(-0.5*z*z) / (sigma * Math.sqrt(2*Math.PI));
+}
+function gammaPdf(x, shape, rate) {
+    if (x <= 0) return 0;
+    return Math.pow(rate, shape) * Math.pow(x, shape-1) * Math.exp(-rate*x) / gammaFn(shape);
+}
+function gammaFn(z) {
+    // Stirling approximation for large z, Lanczos for small
+    if (z < 0.5) return Math.PI / (Math.sin(Math.PI*z) * gammaFn(1-z));
+    z -= 1;
+    const g = 7;
+    const c = [0.99999999999980993,676.5203681218851,-1259.1392167224028,
+               771.32342877765313,-176.61502916214059,12.507343278686905,
+               -0.13857109526572012,9.9843695780195716e-6,1.5056327351493116e-7];
+    let x = c[0];
+    for (let i=1; i<g+2; i++) x += c[i]/(z+i);
+    const t = z + g + 0.5;
+    return Math.sqrt(2*Math.PI) * Math.pow(t, z+0.5) * Math.exp(-t) * x;
+}
+function lgamma(z) { return Math.log(gammaFn(z)); }
+
+/* Pearson classification and PDF */
+function pearsonClassify(beta1, beta2) {
+    if (beta1 < 0.05 && Math.abs(beta2-3) < 0.5) return {type:'Normal', id:0};
+    if (beta1 < 0.05) return beta2 < 3 ? {type:'Sym.Beta',id:2} : {type:'Student-t',id:7};
+    const d1 = 4*beta2 - 3*beta1;
+    const d2 = 2*beta2 - 3*beta1 - 6;
+    if (Math.abs(d2) < 0.05*(1+beta1)) return {type:'Gamma',id:3};
+    if (Math.abs(d1)<1e-10||Math.abs(d2)<1e-10) return {type:'Type IV',id:4};
+    const kappa = beta1*(beta2+3)**2/(4*d1*d2);
+    if (kappa < -0.05) return {type:'Beta',id:1};
+    if (kappa < 0.05) return {type:'Gamma',id:3};
+    if (kappa < 0.95) return {type:'Type IV',id:4};
+    if (kappa < 1.05) return {type:'Inv-Gamma',id:5};
+    return {type:'Beta-prime',id:6};
+}
+
+/* Pearson PDF — evaluate based on type */
+function pearsonPdf(x, mu, sigma, beta1, beta2) {
+    const cls = pearsonClassify(beta1, beta2);
+    if (cls.id === 0 || (beta1 < 0.05 && Math.abs(beta2-3)<0.5)) {
+        return normalPdf(x, mu, sigma);
+    }
+    if (cls.id === 3 && beta1 >= 0.05) {
+        // Gamma
+        const shape = 4/beta1;
+        const scale = 0.5*sigma*Math.sqrt(beta1);
+        const rate = 1/scale;
+        const gamma1 = Math.sqrt(beta1);
+        const loc = mu - shape*scale;
+        const y = x - loc;
+        if (y <= 0) return 0;
+        const lp = shape*Math.log(rate) - lgamma(shape) + (shape-1)*Math.log(y) - rate*y;
+        return Math.exp(lp);
+    }
+    if (cls.id === 7) {
+        // Student-t
+        const df = 2*(5*beta2-9)/(beta2-3);
+        const scale = df > 2 ? sigma*Math.sqrt((df-2)/df) : sigma;
+        const z = (x-mu)/scale;
+        const lp = lgamma(0.5*(df+1)) - lgamma(0.5*df) - 0.5*Math.log(df*Math.PI) - Math.log(scale)
+                   - 0.5*(df+1)*Math.log(1+z*z/df);
+        return Math.exp(lp);
+    }
+    // Fallback to Normal
+    return normalPdf(x, mu, sigma);
+}
+
+/* ===== EM Engine ===== */
+let data = [];
+let K = 2;
+let components = []; // [{mu, sigma, beta1, beta2, weight}]
+let resp = [];       // K x N
+let iteration = 0;
+let prevLL = -Infinity;
+let playing = false;
+let playTimer = null;
+
+function generateData(scenario) {
+    const n = 600;
+    data = [];
+    switch(scenario) {
+    case 'gauss2':
+        for (let i=0;i<n/2;i++) data.push(randn(-4,1));
+        for (let i=0;i<n/2;i++) data.push(randn(4,1.5));
+        break;
+    case 'gauss_exp':
+        for (let i=0;i<n*0.4;i++) data.push(randn(0,1));
+        for (let i=0;i<n*0.6;i++) data.push(randExp(0.5)+3);
+        break;
+    case 'gauss3':
+        for (let i=0;i<n/3;i++) data.push(randn(-5,0.8));
+        for (let i=0;i<n/3;i++) data.push(randn(0,1.2));
+        for (let i=0;i<n/3;i++) data.push(randn(5,0.6));
+        break;
+    case 'bimodal_skew':
+        for (let i=0;i<n*0.6;i++) data.push(randn(-2,1));
+        for (let i=0;i<n*0.4;i++) { const u=Math.random(); data.push(3-2*Math.log(u)); }
+        break;
+    case 'heavy_tail':
+        for (let i=0;i<n*0.7;i++) data.push(randn(0,1));
+        for (let i=0;i<n*0.3;i++) data.push(randn(0,1)/Math.sqrt(randGamma(2.5)/2.5));
+        break;
+    }
+    // Shuffle
+    for (let i=data.length-1;i>0;i--) {
+        const j=Math.floor(Math.random()*(i+1));
+        [data[i],data[j]]=[data[j],data[i]];
+    }
+}
+function randn(mu,sig) {
+    const u1=Math.random(), u2=Math.random();
+    return mu+sig*Math.sqrt(-2*Math.log(u1))*Math.cos(2*Math.PI*u2);
+}
+function randExp(rate) { return -Math.log(Math.random())/rate; }
+function randGamma(shape) {
+    // Marsaglia and Tsang
+    if (shape < 1) return randGamma(shape+1)*Math.pow(Math.random(),1/shape);
+    const d=shape-1/3, c=1/Math.sqrt(9*d);
+    while(true) {
+        let x,v;
+        do { x=randn(0,1); v=1+c*x; } while(v<=0);
+        v=v*v*v;
+        const u=Math.random();
+        if (u<1-0.0331*x*x*x*x) return d*v;
+        if (Math.log(u)<0.5*x*x+d*(1-v+Math.log(v))) return d*v;
+    }
+}
+
+function initComponents() {
+    K = parseInt(document.getElementById('numK').value);
+    components = [];
+    // Sort data, pick quantiles
+    const sorted = [...data].sort((a,b)=>a-b);
+    const n = sorted.length;
+    const globalSig = Math.sqrt(data.reduce((s,x)=>s+(x-data.reduce((a,b)=>a+b,0)/n)**2,0)/n);
+    const compSig = Math.max(globalSig/Math.sqrt(K), globalSig*0.2);
+
+    for (let j=0; j<K; j++) {
+        const qi = Math.floor((j+0.5)*n/K);
+        components.push({
+            mu: sorted[qi],
+            sigma: compSig,
+            beta1: 0,
+            beta2: 3,
+            weight: 1/K
+        });
+    }
+    resp = Array.from({length:K}, ()=>new Float64Array(data.length));
+    iteration = 0;
+    prevLL = -Infinity;
+}
+
+function eStep() {
+    let ll = 0;
+    for (let i=0; i<data.length; i++) {
+        let total = 0;
+        for (let j=0; j<K; j++) {
+            const c = components[j];
+            let p = c.weight * pearsonPdf(data[i], c.mu, c.sigma, c.beta1, c.beta2);
+            if (p < 1e-300) p = 1e-300;
+            resp[j][i] = p;
+            total += p;
+        }
+        for (let j=0; j<K; j++) resp[j][i] /= total;
+        ll += Math.log(total);
+    }
+    return ll;
+}
+
+function mStep() {
+    const n = data.length;
+    for (let j=0; j<K; j++) {
+        let sw=0, sm=0;
+        for (let i=0;i<n;i++) { sw+=resp[j][i]; sm+=resp[j][i]*data[i]; }
+        const mu = sm/sw;
+
+        // Core-filtered variance
+        const meanResp = sw/n;
+        const thresh = meanResp * 0.1;
+        let m2c=0, swc=0;
+        for (let i=0;i<n;i++) {
+            if (resp[j][i] < thresh) continue;
+            const d=data[i]-mu;
+            m2c += resp[j][i]*d*d;
+            swc += resp[j][i];
+        }
+        if (swc < sw*0.3) { m2c=0; swc=0; for(let i=0;i<n;i++){const d=data[i]-mu;m2c+=resp[j][i]*d*d;swc+=resp[j][i];} }
+        let sigEst = Math.sqrt(m2c/swc);
+        if (sigEst < 1e-6) sigEst = 1e-6;
+
+        // Winsorized moments at ±3σ
+        const clip = 3*sigEst;
+        let m2=0,m3=0,m4=0;
+        for (let i=0;i<n;i++) {
+            let d=data[i]-mu;
+            if(d>clip)d=clip; if(d<-clip)d=-clip;
+            const w=resp[j][i], d2=d*d;
+            m2+=w*d2; m3+=w*d2*d; m4+=w*d2*d2;
+        }
+        m2/=sw; m3/=sw; m4/=sw;
+
+        let sigma=Math.sqrt(m2); if(sigma<1e-6)sigma=1e-6;
+        let beta1 = m2>1e-20 ? m3*m3/(m2*m2*m2) : 0;
+        let beta2 = m2>1e-20 ? m4/(m2*m2) : 3;
+        if(beta2 < 1+beta1+0.05) beta2=1+beta1+0.05;
+        if(beta1>10) beta1=10; if(beta2>20) beta2=20;
+
+        // Regularize toward Normal
+        let reg;
+        if(sw<5) reg=0.95; else if(sw<20) reg=0.7; else if(sw<100) reg=0.4;
+        else if(sw<500) reg=0.1; else reg=0;
+        beta1 *= (1-reg);
+        beta2 = beta2*(1-reg)+3*reg;
+
+        components[j] = { mu, sigma, beta1, beta2, weight: sw/n };
+    }
+    // Renormalize weights
+    const wsum = components.reduce((s,c)=>s+c.weight,0);
+    components.forEach(c=>c.weight/=wsum);
+}
+
+function emStep() {
+    const ll = eStep();
+    const delta = ll - prevLL;
+    mStep();
+    iteration++;
+    prevLL = ll;
+
+    document.getElementById('iterNum').textContent = iteration;
+    document.getElementById('llVal').textContent = ll.toFixed(2);
+    document.getElementById('deltaLL').textContent = delta.toExponential(2);
+    document.getElementById('status').textContent =
+        Math.abs(delta) < 0.01 ? 'Converged ✓' : 'Running...';
+
+    return Math.abs(delta) < 0.01;
+}
+
+/* ===== Drawing ===== */
+function draw() {
+    const W=C.width, H=C.height;
+    ctx.fillStyle='#0a0a1a';
+    ctx.fillRect(0,0,W,H);
+
+    // Compute data range
+    let mn=Infinity,mx=-Infinity;
+    data.forEach(x=>{if(x<mn)mn=x;if(x>mx)mx=x;});
+    const pad=(mx-mn)*0.1;
+    mn-=pad; mx+=pad;
+
+    const xToScreen = x => (x-mn)/(mx-mn)*W;
+    const screenToX = s => s/W*(mx-mn)+mn;
+
+    // Draw histogram
+    const nbins = 60;
+    const bw = (mx-mn)/nbins;
+    const hist = new Float64Array(nbins);
+    data.forEach(x => {
+        const b = Math.floor((x-mn)/bw);
+        if (b>=0 && b<nbins) hist[b]++;
+    });
+    // Normalize to density
+    const total = data.length * bw;
+    let histMax = 0;
+    for (let b=0;b<nbins;b++) { hist[b]/=total; if(hist[b]>histMax) histMax=hist[b]; }
+
+    // Compute max PDF for scaling
+    let pdfMax = histMax;
+    const npts = 300;
+    for (let p=0; p<npts; p++) {
+        const x = mn + (mx-mn)*p/npts;
+        let mix = 0;
+        components.forEach(c => mix += c.weight * pearsonPdf(x, c.mu, c.sigma, c.beta1, c.beta2));
+        if (mix > pdfMax) pdfMax = mix;
+    }
+    const yScale = (H-40) / (pdfMax * 1.1);
+
+    // Histogram bars
+    ctx.fillStyle = '#ffffff18';
+    ctx.strokeStyle = '#ffffff30';
+    for (let b=0;b<nbins;b++) {
+        const x1 = xToScreen(mn+b*bw);
+        const x2 = xToScreen(mn+(b+1)*bw);
+        const h = hist[b]*yScale;
+        ctx.fillRect(x1, H-20-h, x2-x1-1, h);
+        ctx.strokeRect(x1, H-20-h, x2-x1-1, h);
+    }
+
+    // Draw individual component PDFs + mixture
+    const mixY = new Float64Array(npts);
+    for (let j=0; j<K; j++) {
+        const c = components[j];
+        ctx.beginPath();
+        ctx.strokeStyle = COLORS[j%COLORS.length];
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.7;
+        for (let p=0; p<npts; p++) {
+            const x = mn + (mx-mn)*p/npts;
+            const y = c.weight * pearsonPdf(x, c.mu, c.sigma, c.beta1, c.beta2);
+            mixY[p] += y;
+            const sx = p/npts*W;
+            const sy = H-20-y*yScale;
+            p===0 ? ctx.moveTo(sx,sy) : ctx.lineTo(sx,sy);
+        }
+        ctx.stroke();
+
+        // Fill area
+        ctx.lineTo(W, H-20);
+        ctx.lineTo(0, H-20);
+        ctx.closePath();
+        ctx.fillStyle = COLORS_DIM[j%COLORS.length];
+        ctx.fill();
+        ctx.globalAlpha = 1;
+
+        // Draw mean marker
+        const mx_s = xToScreen(c.mu);
+        ctx.strokeStyle = COLORS[j%COLORS.length];
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4,4]);
+        ctx.beginPath(); ctx.moveTo(mx_s,20); ctx.lineTo(mx_s,H-20); ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    // Mixture curve
+    ctx.beginPath();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2.5;
+    for (let p=0; p<npts; p++) {
+        const sx = p/npts*W;
+        const sy = H-20-mixY[p]*yScale;
+        p===0 ? ctx.moveTo(sx,sy) : ctx.lineTo(sx,sy);
+    }
+    ctx.stroke();
+
+    // Data rug plot with coloring by responsibility
+    if (resp.length > 0 && resp[0].length === data.length) {
+        for (let i=0; i<data.length; i++) {
+            let maxJ=0, maxR=0;
+            for (let j=0;j<K;j++) if(resp[j][i]>maxR){maxR=resp[j][i];maxJ=j;}
+            ctx.strokeStyle = COLORS[maxJ%COLORS.length];
+            ctx.globalAlpha = 0.3;
+            ctx.lineWidth = 1;
+            const sx = xToScreen(data[i]);
+            ctx.beginPath(); ctx.moveTo(sx,H-18); ctx.lineTo(sx,H-5); ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+    }
+
+    // Iteration text
+    ctx.fillStyle='#555';
+    ctx.font='12px Consolas';
+    ctx.fillText(`Iteration ${iteration}`, 10, 15);
+
+    // Update component cards
+    updateCards();
+}
+
+function updateCards() {
+    const div = document.getElementById('compCards');
+    div.innerHTML = '';
+    components.forEach((c,j) => {
+        const cls = pearsonClassify(c.beta1, c.beta2);
+        const card = document.createElement('div');
+        card.className = 'comp-card';
+        card.style.borderColor = COLORS[j%COLORS.length] + '88';
+        card.innerHTML = `
+            <h3 style="color:${COLORS[j%COLORS.length]}">Component ${j+1}</h3>
+            <div class="type">${cls.type}</div>
+            <div>μ = ${c.mu.toFixed(3)}</div>
+            <div>σ = ${c.sigma.toFixed(3)}</div>
+            <div>β₁ = ${c.beta1.toFixed(4)}</div>
+            <div>β₂ = ${c.beta2.toFixed(4)}</div>
+            <div>π = ${(c.weight*100).toFixed(1)}%</div>
+        `;
+        div.appendChild(card);
+    });
+
+    // Legend
+    const leg = document.getElementById('legend');
+    leg.innerHTML = components.map((c,j)=>
+        `<span><span class="dot" style="background:${COLORS[j%COLORS.length]}"></span>Comp ${j+1} (${pearsonClassify(c.beta1,c.beta2).type})</span>`
+    ).join('') + '<span><span class="dot" style="background:#fff"></span>Mixture</span>';
+}
+
+/* ===== Controls ===== */
+function resetSim() {
+    stopPlay();
+    generateData(document.getElementById('scenario').value);
+    initComponents();
+    // First E-step for initial coloring
+    eStep();
+    draw();
+    document.getElementById('iterNum').textContent = '0';
+    document.getElementById('llVal').textContent = '—';
+    document.getElementById('deltaLL').textContent = '—';
+    document.getElementById('status').textContent = 'Ready';
+}
+
+function stepOnce() {
+    if (data.length === 0) resetSim();
+    const converged = emStep();
+    draw();
+    if (converged) {
+        stopPlay();
+        document.getElementById('status').textContent = 'Converged ✓';
+    }
+}
+
+function togglePlay() {
+    if (playing) { stopPlay(); return; }
+    playing = true;
+    document.getElementById('btnPlay').textContent = '⏸ Pause';
+    document.getElementById('btnPlay').classList.add('active');
+    if (data.length === 0) resetSim();
+    tick();
+}
+function tick() {
+    if (!playing) return;
+    const converged = emStep();
+    draw();
+    if (converged) { stopPlay(); return; }
+    const speed = parseInt(document.getElementById('speed').value);
+    playTimer = setTimeout(tick, Math.max(50, 1000/speed));
+}
+function stopPlay() {
+    playing = false;
+    if (playTimer) clearTimeout(playTimer);
+    document.getElementById('btnPlay').textContent = '▶ Play';
+    document.getElementById('btnPlay').classList.remove('active');
+}
+function fastForward() {
+    if (data.length === 0) resetSim();
+    for (let i=0; i<200; i++) {
+        if (emStep()) break;
+    }
+    draw();
+}
+
+document.getElementById('scenario').addEventListener('change', resetSim);
+document.getElementById('numK').addEventListener('change', resetSim);
+
+// Init
+resetSim();
+</script>
+</body>
+</html>

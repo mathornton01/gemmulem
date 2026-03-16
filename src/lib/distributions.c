@@ -12,6 +12,10 @@
 #include <float.h>
 
 #include "distributions.h"
+#include "pearson.h"
+
+/* Forward declaration */
+DistFunctions pearson_get_dist_functions(void);
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -373,9 +377,18 @@ static DistFunctions dist_table[] = {
     { DIST_WEIBULL,     "Weibull",     2, weibull_pdf, NULL,           weibull_estimate, weibull_init, weibull_valid },
     { DIST_BETA,        "Beta",        2, beta_pdf,    beta_logpdf,    beta_estimate,    beta_init,    beta_valid },
     { DIST_UNIFORM,     "Uniform",     2, uniform_pdf, NULL,           uniform_estimate, uniform_init, uniform_valid },
+    { 0, NULL, 0, NULL, NULL, NULL, NULL, NULL },  /* Pearson placeholder, filled at init */
 };
 
+static int dist_table_initialized = 0;
+static void init_dist_table(void) {
+    if (dist_table_initialized) return;
+    dist_table[DIST_PEARSON] = pearson_get_dist_functions();
+    dist_table_initialized = 1;
+}
+
 const DistFunctions* GetDistFunctions(DistFamily family) {
+    init_dist_table();
     if (family >= 0 && family < DIST_COUNT) return &dist_table[family];
     return NULL;
 }

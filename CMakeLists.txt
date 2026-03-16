@@ -34,6 +34,11 @@ add_executable(test_distributions Test/test_distributions.c)
 target_include_directories(test_distributions PRIVATE "${PROJECT_SOURCE_DIR}/src/lib")
 target_link_libraries(test_distributions em m)
 
+add_executable(test_pearson Test/test_pearson.c)
+target_include_directories(test_pearson PRIVATE "${PROJECT_SOURCE_DIR}/src/lib")
+target_link_libraries(test_pearson em m)
+
 add_test(NAME unit_tests COMMAND test_em)
 add_test(NAME distribution_tests COMMAND test_distributions)
+add_test(NAME pearson_tests COMMAND test_pearson)
 

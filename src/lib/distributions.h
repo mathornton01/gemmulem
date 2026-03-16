@@ -30,7 +30,8 @@ typedef enum {
     DIST_WEIBULL     = 5,
     DIST_BETA        = 6,
     DIST_UNIFORM     = 7,
-    DIST_COUNT       = 8   /* sentinel: number of distributions */
+    DIST_PEARSON     = 8,   /* Pearson system — auto-discovers distribution type */
+    DIST_COUNT       = 9   /* sentinel: number of distributions */
 } DistFamily;
 
 /* Per-component parameters */
