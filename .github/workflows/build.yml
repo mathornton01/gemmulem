@@ -1,0 +1,33 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: |
+          mkdir -p build && cd build
+          cmake ..
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Run unit tests
+        run: cd build && ctest --output-on-failure
+
+      - name: Run CLI smoke test
+        run: |
+          ./build/gemmulem -i extension/R/rgemmulem/inst/extdata/em_tst.csv -t 2>&1 | grep -q "0.999"
+          echo "CLI smoke test passed"

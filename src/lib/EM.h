@@ -26,10 +26,17 @@ extern "C"
 {
 #endif
 
+enum EMInitMethod {
+    EM_INIT_RANDOM = 0,
+    EM_INIT_KMEANS = 1
+};
+
 struct EMConfig {
     int verbose;
     int maxiter;
     double rtole;
+    int init_method;   /* 0 = random, 1 = k-means */
+    unsigned int seed; /* 0 = use time-based seed */
 };
 typedef struct EMConfig EMConfig_t;
 
@@ -37,6 +44,8 @@ struct EMResult {
     // Array of expectations
     size_t size;
     double *values;
+    int iterations;
+    double loglikelihood;
 };
 typedef struct EMResult EMResult_t;
 

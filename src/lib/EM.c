@@ -34,6 +34,10 @@
 #include "EM.h"
 #include "vect.h"
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 // Some simple utility functions I need.
 double Min(const double* ValuePtr, size_t Size);
 double Max(const double* ValuePtr, size_t Size);
@@ -43,6 +47,7 @@ double GetNormLH(double value, double mean, double var);
 double GetExpoLH(double value, double mn);
 
 int RandomInitGaussianEM(const double* ValuePtr, size_t Size, int NumGaussians, EMResultGaussian_t* ResultPtr);
+int KMeansInitGaussianEM(const double* ValuePtr, size_t Size, int NumGaussians, EMResultGaussian_t* ResultPtr);
 int RandomInitExponentialEM(const double* ValuePtr, size_t Size, int NumExponentials, EMResultExponential_t* ResultPtr);
 
 // Default EMConfig_t
@@ -50,16 +55,22 @@ EMConfig_t EMConfigDefault = {
         .verbose = 0,
         .maxiter = 1000,
         .rtole = 0.00001,
+        .init_method = EM_INIT_RANDOM,
+        .seed = 0,
 };
 EMConfig_t EMConfigGaussianDefault = {
         .verbose = 0,
         .maxiter = 1000,
         .rtole = 0.000001,
+        .init_method = EM_INIT_RANDOM,
+        .seed = 0,
 };
 EMConfig_t EMConfigExponentialDefault = {
         .verbose = 0,
         .maxiter = 1000,
         .rtole = 0.000001,
+        .init_method = EM_INIT_RANDOM,
+        .seed = 0,
 };
 
 
@@ -104,7 +115,11 @@ int UnmixGaussians(const double* ValuePtr, size_t Size, int NumGaussians, EMResu
         cfg = *ConfigPtr;
     }
 
-    RandomInitGaussianEM(ValuePtr, Size, NumGaussians, ResultPtr);
+    if (cfg.init_method == EM_INIT_KMEANS) {
+        KMeansInitGaussianEM(ValuePtr, Size, NumGaussians, ResultPtr);
+    } else {
+        RandomInitGaussianEM(ValuePtr, Size, NumGaussians, ResultPtr);
+    }
 
     int mconv = 0;
     int vconv = 0;
@@ -344,7 +359,8 @@ double Var(const double* ValuePtr, size_t Size)
 
 double GetNormLH(double value, double mean, double var){
     double sd = sqrt(var);
-    double LH = (1/(sd*sqrt(2*3.14159265)))*pow(2.71828182,(-0.5)*pow((value-mean)/sd,2));
+    double z = (value - mean) / sd;
+    double LH = (1.0 / (sd * sqrt(2.0 * M_PI))) * exp(-0.5 * z * z);
     return(LH);
 }
 
@@ -532,10 +548,11 @@ int RandomInitExponentialEM(const double* ValuePtr, size_t Size, int NumExponent
 
 double GetExpoLH(double value, double mn)
 {
-    if (value < 0){
+    if (value < 0 || mn <= 0){
         return(0.0);
     } else {
-        double LH = (1.0/mn) * pow(2.718281,-(1.0/mn)*value);
+        double rate = 1.0 / mn;
+        double LH = rate * exp(-rate * value);
         return(LH);
     }
 }
@@ -643,18 +660,133 @@ int ExpectationMaximization(const char* CompatMatrixPtr, size_t NumRows, size_t 
         num_iter++;
     }
 
+     /* Compute log-likelihood */
+     double ll = 0.0;
+     for (int i = 0; i < NumPattern; i++) {
+         double row_prob = 0.0;
+         for (int j = 0; j < NumTrans; j++) {
+             const size_t offset = i * NumTrans + j;
+             if (CompatMatrixPtr[offset] == '1') {
+                 row_prob += abdn_old[j];
+             }
+         }
+         if (row_prob > 0.0) {
+             ll += CountPtr[i] * log(row_prob);
+         }
+     }
+
      if (cfg.verbose) {
          printf("INFO: EM - Ran for %d iteration\n", num_iter);
+         printf("INFO: EM - Final log-likelihood: %f\n", ll);
          unsigned long long end_ts = GetCurrentTimestamp();
          printf("INFO: EM - Took %llu microseconds to run\n", end_ts - start_ts);
      }
 
      ResultPtr->size = NumTrans;
      ResultPtr->values = abdn_old;
+     ResultPtr->iterations = num_iter;
+     ResultPtr->loglikelihood = ll;
 
      free(abdn_new);
      free(abdninit);
      free(expected_counts);
+
+    return 0;
+}
+
+int KMeansInitGaussianEM(const double* ValuePtr, size_t Size, int NumGaussians, EMResultGaussian_t* ResultPtr)
+{
+    ResultPtr->numGaussians = NumGaussians;
+    size_t VecSize = sizeof(double) * NumGaussians;
+
+    ResultPtr->means_init = (double *)malloc(VecSize);
+    ResultPtr->vars_init = (double *)malloc(VecSize);
+    ResultPtr->probs_init = (double *)malloc(VecSize);
+    ResultPtr->means_final = (double *)malloc(VecSize);
+    ResultPtr->vars_final = (double *)malloc(VecSize);
+    ResultPtr->probs_final = (double *)malloc(VecSize);
+
+    double minv = Min(ValuePtr, Size);
+    double maxv = Max(ValuePtr, Size);
+
+    /* Initialize centers evenly spaced across range */
+    for (int k = 0; k < NumGaussians; k++) {
+        ResultPtr->means_init[k] = minv + (maxv - minv) * (k + 0.5) / NumGaussians;
+    }
+
+    /* Run k-means for up to 100 iterations */
+    int* assignments = (int *)malloc(sizeof(int) * Size);
+    double* centers = (double *)malloc(VecSize);
+    memcpy(centers, ResultPtr->means_init, VecSize);
+
+    for (int iter = 0; iter < 100; iter++) {
+        /* Assign each point to nearest center */
+        for (size_t i = 0; i < Size; i++) {
+            double best_dist = 1e300;
+            int best_k = 0;
+            for (int k = 0; k < NumGaussians; k++) {
+                double d = (ValuePtr[i] - centers[k]) * (ValuePtr[i] - centers[k]);
+                if (d < best_dist) {
+                    best_dist = d;
+                    best_k = k;
+                }
+            }
+            assignments[i] = best_k;
+        }
+
+        /* Recompute centers */
+        double changed = 0.0;
+        for (int k = 0; k < NumGaussians; k++) {
+            double sum = 0.0;
+            int count = 0;
+            for (size_t i = 0; i < Size; i++) {
+                if (assignments[i] == k) {
+                    sum += ValuePtr[i];
+                    count++;
+                }
+            }
+            if (count > 0) {
+                double new_center = sum / count;
+                changed += fabs(new_center - centers[k]);
+                centers[k] = new_center;
+            }
+        }
+        if (changed < 1e-10) break;
+    }
+
+    /* Compute cluster statistics */
+    for (int k = 0; k < NumGaussians; k++) {
+        double sum = 0.0, sum2 = 0.0;
+        int count = 0;
+        for (size_t i = 0; i < Size; i++) {
+            if (assignments[i] == k) {
+                sum += ValuePtr[i];
+                sum2 += ValuePtr[i] * ValuePtr[i];
+                count++;
+            }
+        }
+        if (count > 1) {
+            double mean = sum / count;
+            double var = sum2 / count - mean * mean;
+            if (var < 1e-10) var = 1.0;
+            ResultPtr->means_init[k] = mean;
+            ResultPtr->vars_init[k] = var;
+        } else {
+            ResultPtr->means_init[k] = centers[k];
+            ResultPtr->vars_init[k] = Var(ValuePtr, Size);
+        }
+        ResultPtr->probs_init[k] = (double)count / Size;
+        if (ResultPtr->probs_init[k] < 1e-10) {
+            ResultPtr->probs_init[k] = 1.0 / NumGaussians;
+        }
+    }
+
+    memcpy(ResultPtr->means_final, ResultPtr->means_init, VecSize);
+    memcpy(ResultPtr->vars_final, ResultPtr->vars_init, VecSize);
+    memcpy(ResultPtr->probs_final, ResultPtr->probs_init, VecSize);
+
+    free(assignments);
+    free(centers);
 
     return 0;
 }

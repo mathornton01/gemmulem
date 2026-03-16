@@ -1,0 +1,20 @@
+# Build output
+build/
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+
+# Generated output files
+*.abdn.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db

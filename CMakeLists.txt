@@ -1,7 +1,8 @@
 cmake_minimum_required(VERSION 3.15)
-project(GEMMULEM)
+project(GEMMULEM C CXX)
 
 set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_C_STANDARD 11)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
@@ -21,4 +22,13 @@ target_link_libraries(gemmulem em)
 
 # install target
 install(TARGETS gemmulem DESTINATION bin)
+
+# Tests
+enable_testing()
+
+add_executable(test_em Test/test_em.c)
+target_include_directories(test_em PRIVATE "${PROJECT_SOURCE_DIR}/src/lib")
+target_link_libraries(test_em em m)
+
+add_test(NAME unit_tests COMMAND test_em)
 

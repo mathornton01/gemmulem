@@ -41,6 +41,7 @@ struct emsettings{
     int maxitr;
     bool verbose = false; 
     bool termcat = false;
+    bool kmeans_init = false;
     double rtole;
 };
 struct genesamfile{
@@ -161,6 +162,8 @@ struct emsettings parseargs(int argc, char ** argv){
             srand(stoi(string(argv[i+1])));
         } else if (string(argv[i]) == "-m" | string(argv[i]) == "-M" | string(argv[i]) == "--MAXIT"){
             maxitr = stoi(string(argv[i+1]));
+        } else if (string(argv[i]) == "--kmeans" | string(argv[i]) == "--KMEANS"){
+            ems.kmeans_init = true;
         }
     }
     if (infile == "" && sfile == "" && gfile == "" && efile == ""){
@@ -207,8 +210,8 @@ int main(int argc, char** argv)
     cout <<
          "                         (GEMMULEM)                         " << endl <<
          "      General Mixed Multinomial Expectation Maximization    " << endl <<
-         "              Micah Thornton & Chanhee Park (2022)          " << endl <<
-         "                        [Version 1.1]                       " << endl << endl;
+         "              Micah Thornton & Chanhee Park (2022-2026)     " << endl <<
+         "                        [Version 2.0]                       " << endl << endl;
 
     // Store the user settings for the EM algorithm in the ems structure. 
     struct emsettings ems = parseargs(argc, argv);
@@ -527,10 +530,10 @@ struct comppatcounts parseinputgenesam(string samfilename){
         }
     }
     vector<string> curcompattransnames;
-    for (int j = 0; j < gsf.readnames.size(); j++){
+    for (size_t j = 0; j < gsf.readnames.size(); j++){
         curpat = "";
         curcompattransnames.clear();
-        for (int k = 0; k < gsf.tagname[j].size(); k++){
+        for (size_t k = 0; k < gsf.tagname[j].size(); k++){
             if (gsf.tagname[j][k] == "TI:Z:"){
                 curtagval = stringstream(gsf.tagval[j][k]);
                 getline(curtagval,curtransname,'-');
@@ -545,20 +548,35 @@ struct comppatcounts parseinputgenesam(string samfilename){
                 }
             }
         }
-        for (int i = 0; i < alltransnames.size(); i++){
+        for (size_t i = 0; i < alltransnames.size(); i++){
             curpat += '0';
         }
-        for (int j = 0; j < curcompattransnames.size(); j++){
-            for (int i = 0; i < alltransnames.size(); i++){
-                if (curcompattransnames[j] == alltransnames[i]){
+        for (size_t m = 0; m < curcompattransnames.size(); m++){
+            for (size_t i = 0; i < alltransnames.size(); i++){
+                if (curcompattransnames[m] == alltransnames[i]){
                     curpat[i] = '1';
                 }
            }
         }
-        cout << curpat << endl;
         pats.push_back(curpat);
-     }        
-    
+     }
+
+    /* Aggregate patterns into unique patterns with counts */
+    for (size_t i = 0; i < pats.size(); i++){
+        bool found = false;
+        for (size_t j = 0; j < cpc.compatibilityPattern.size(); j++){
+            if (cpc.compatibilityPattern[j] == pats[i]){
+                cpc.count[j]++;
+                found = true;
+                break;
+            }
+        }
+        if (!found){
+            cpc.compatibilityPattern.push_back(pats[i]);
+            cpc.count.push_back(1);
+        }
+    }
+
     return(cpc);
 }
 
@@ -570,4 +588,6 @@ void MakeEMConfig(EMConfig_t* ConfigPtr, struct emsettings* ems)
     ConfigPtr->verbose = ems->verbose;
     ConfigPtr->maxiter = ems->maxitr;
     ConfigPtr->rtole = ems->rtole;
+    ConfigPtr->init_method = ems->kmeans_init ? EM_INIT_KMEANS : EM_INIT_RANDOM;
+    ConfigPtr->seed = 0;
 }
