@@ -28,6 +28,7 @@
 #include <cmath>
 
 #include "EM.h"
+#include "distributions.h"
 
 using namespace std;
 
@@ -37,11 +38,14 @@ struct emsettings{
     string samfilename;
     string valfilename;
     string type;
+    string distname;
     int kmixt;
+    int kmax;
     int maxitr;
     bool verbose = false; 
     bool termcat = false;
     bool kmeans_init = false;
+    bool autoselect = false;
     double rtole;
 };
 struct genesamfile{
@@ -126,6 +130,7 @@ struct emsettings parseargs(int argc, char ** argv){
     int seed; 
     double rtole = -1; 
     int kmixt = 3;
+    int kmax = 0;
     int maxitr = 1000;
     struct emsettings ems; 
     bool verbose = false; 
@@ -164,6 +169,12 @@ struct emsettings parseargs(int argc, char ** argv){
             maxitr = stoi(string(argv[i+1]));
         } else if (string(argv[i]) == "--kmeans" | string(argv[i]) == "--KMEANS"){
             ems.kmeans_init = true;
+        } else if (string(argv[i]) == "--auto" | string(argv[i]) == "--AUTO"){
+            ems.autoselect = true;
+        } else if (string(argv[i]) == "-d" | string(argv[i]) == "-D" | string(argv[i]) == "--DIST"){
+            ems.distname = string(argv[i+1]);
+        } else if (string(argv[i]) == "--kmax" | string(argv[i]) == "--KMAX"){
+            kmax = stoi(string(argv[i+1]));
         }
     }
     if (infile == "" && sfile == "" && gfile == "" && efile == ""){
@@ -197,6 +208,7 @@ struct emsettings parseargs(int argc, char ** argv){
     ems.ofilename = ofile;
     ems.samfilename = sfile;
     ems.kmixt = kmixt;
+    if (ems.kmax == 0) ems.kmax = kmax;
     ems.rtole = rtole; 
     ems.maxitr = maxitr;
     ems.verbose = verbose;
@@ -361,6 +373,139 @@ int main(int argc, char** argv)
         ofile.close();
         cout << "INFO: File IO - Output written on " << ems.ofilename << endl;
         ReleaseEMResultExponential(&Result);
+    }
+
+    /* ================================================================
+     * Generic distribution mode (-d DIST or --auto)
+     *
+     * -d gaussian/exponential/gamma/lognormal/weibull/beta/poisson/uniform
+     *    Uses the generic EM engine with that family
+     *
+     * --auto
+     *    Tries all valid families x k_min..k_max, picks best by BIC
+     * ================================================================ */
+    if (!ems.distname.empty() || ems.autoselect) {
+        if (umv.empty() && ems.valfilename.empty()) {
+            /* Need a data file — try reading from -g/-e filename or reparse */
+            cerr << "ERROR: Generic/auto mode requires data values (-g or -e input)." << endl;
+            return 1;
+        }
+        /* If umv wasn't populated by prior modes, load it now */
+        if (umv.empty() && !ems.valfilename.empty()) {
+            umv = parsegmvinputfile(ems.valfilename);
+        }
+
+        int k_min = 1;
+        int k_max = ems.kmax > 0 ? ems.kmax : ems.kmixt;
+        if (k_max < k_min) k_max = k_min;
+
+        if (ems.autoselect) {
+            cout << "INFO: Auto-selecting best distribution family and number of components" << endl;
+            cout << "INFO: Testing k=" << k_min << " to k=" << k_max << endl;
+
+            ModelSelectResult msResult;
+            int rc = SelectBestMixture(umv.data(), umv.size(),
+                                       NULL, 0,  /* try all valid families */
+                                       k_min, k_max,
+                                       ems.maxitr, ems.rtole, ems.verbose ? 1 : 0,
+                                       &msResult);
+            if (rc == 0) {
+                cout << endl;
+                cout << "========================================" << endl;
+                cout << "  Best Model: " << GetDistName(msResult.best_family)
+                     << " with k=" << msResult.best_k << endl;
+                cout << "  BIC = " << msResult.best_bic << endl;
+                cout << "========================================" << endl;
+                cout << endl;
+
+                /* Print all candidates sorted by BIC */
+                cout << "All candidates:" << endl;
+                for (int c = 0; c < msResult.num_candidates; c++) {
+                    MixtureResult& mr = msResult.candidates[c];
+                    cout << "  " << GetDistName(mr.family)
+                         << " k=" << mr.num_components
+                         << "  LL=" << mr.loglikelihood
+                         << "  BIC=" << mr.bic
+                         << "  AIC=" << mr.aic;
+                    if (mr.family == msResult.best_family && mr.num_components == msResult.best_k)
+                        cout << "  <-- BEST";
+                    cout << endl;
+                }
+
+                /* Print best model parameters */
+                for (int c = 0; c < msResult.num_candidates; c++) {
+                    MixtureResult& mr = msResult.candidates[c];
+                    if (mr.family == msResult.best_family && mr.num_components == msResult.best_k) {
+                        cout << endl << "Best model parameters:" << endl;
+                        const DistFunctions* df = GetDistFunctions(mr.family);
+                        for (int j = 0; j < mr.num_components; j++) {
+                            cout << "  Component " << j << ": weight=" << mr.mixing_weights[j];
+                            for (int p = 0; p < df->num_params; p++)
+                                cout << "  p" << p << "=" << mr.params[j].p[p];
+                            cout << endl;
+                        }
+                        break;
+                    }
+                }
+            }
+            ReleaseModelSelectResult(&msResult);
+
+        } else {
+            /* Specific distribution */
+            DistFamily fam = DIST_GAUSSIAN;
+            string dn = ems.distname;
+            /* Lowercase it */
+            for (auto& c : dn) c = tolower(c);
+
+            if (dn == "gaussian" || dn == "normal") fam = DIST_GAUSSIAN;
+            else if (dn == "exponential" || dn == "exp") fam = DIST_EXPONENTIAL;
+            else if (dn == "poisson") fam = DIST_POISSON;
+            else if (dn == "gamma") fam = DIST_GAMMA;
+            else if (dn == "lognormal" || dn == "lognorm") fam = DIST_LOGNORMAL;
+            else if (dn == "weibull") fam = DIST_WEIBULL;
+            else if (dn == "beta") fam = DIST_BETA;
+            else if (dn == "uniform") fam = DIST_UNIFORM;
+            else {
+                cerr << "ERROR: Unknown distribution '" << ems.distname << "'" << endl;
+                cerr << "  Valid: gaussian, exponential, poisson, gamma, lognormal, weibull, beta, uniform" << endl;
+                return 1;
+            }
+
+            cout << "INFO: Fitting " << GetDistName(fam) << " mixture with k=" << ems.kmixt << endl;
+
+            MixtureResult result;
+            int rc = UnmixGeneric(umv.data(), umv.size(), fam, ems.kmixt,
+                                  ems.maxitr, ems.rtole, ems.verbose ? 1 : 0, &result);
+            if (rc == 0) {
+                cout << "INFO: Converged in " << result.iterations << " iterations" << endl;
+                cout << "INFO: LL=" << result.loglikelihood
+                     << "  BIC=" << result.bic
+                     << "  AIC=" << result.aic << endl;
+                cout << endl;
+
+                const DistFunctions* df = GetDistFunctions(fam);
+                for (int j = 0; j < result.num_components; j++) {
+                    cout << "Component " << j << ": weight=" << result.mixing_weights[j];
+                    for (int p = 0; p < df->num_params; p++)
+                        cout << "  p" << p << "=" << result.params[j].p[p];
+                    cout << endl;
+                }
+
+                /* Write to file */
+                ofstream ofile(ems.ofilename);
+                ofile << "# " << GetDistName(fam) << " mixture, k=" << result.num_components << endl;
+                ofile << "# LL=" << result.loglikelihood << " BIC=" << result.bic << endl;
+                for (int j = 0; j < result.num_components; j++) {
+                    ofile << result.mixing_weights[j];
+                    for (int p = 0; p < df->num_params; p++)
+                        ofile << "," << result.params[j].p[p];
+                    ofile << endl;
+                }
+                ofile.close();
+                cout << "INFO: Output written on " << ems.ofilename << endl;
+            }
+            ReleaseMixtureResult(&result);
+        }
     }
 }
 

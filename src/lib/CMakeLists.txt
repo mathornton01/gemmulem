@@ -1,7 +1,8 @@
 add_library(em
         STATIC
         vect.c
-        EM.c)
+        EM.c
+        distributions.c)
 
 set_property(TARGET em PROPERTY POSITION_INDEPENDENT_CODE ON)
 
@@ -9,5 +10,5 @@ set_property(TARGET em PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 # install target
 install(TARGETS em DESTINATION lib)
-install(FILES EM.h DESTINATION include)
+install(FILES EM.h distributions.h DESTINATION include)
 

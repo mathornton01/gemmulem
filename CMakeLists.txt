@@ -30,5 +30,10 @@ add_executable(test_em Test/test_em.c)
 target_include_directories(test_em PRIVATE "${PROJECT_SOURCE_DIR}/src/lib")
 target_link_libraries(test_em em m)
 
+add_executable(test_distributions Test/test_distributions.c)
+target_include_directories(test_distributions PRIVATE "${PROJECT_SOURCE_DIR}/src/lib")
+target_link_libraries(test_distributions em m)
+
 add_test(NAME unit_tests COMMAND test_em)
+add_test(NAME distribution_tests COMMAND test_distributions)
 
