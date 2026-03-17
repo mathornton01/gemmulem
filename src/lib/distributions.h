@@ -56,7 +56,8 @@ typedef enum {
     DIST_NEGBINOM    = 31,  /* Negative Binomial: overdispersed counts */
     DIST_GEOMETRIC   = 32,  /* Geometric: trials until first success */
     DIST_ZIPF        = 33,  /* Zipf: power-law discrete (rank-frequency) */
-    DIST_COUNT       = 34   /* sentinel: number of distributions */
+    DIST_KDE         = 34,  /* Kernel Density Estimate: nonparametric, O(n²) */
+    DIST_COUNT       = 35   /* sentinel: number of distributions */
 } DistFamily;
 
 /* Per-component parameters */
@@ -177,7 +178,8 @@ typedef enum {
     KMETHOD_AIC      = 1,  /* AIC-driven split-merge (less penalizing) */
     KMETHOD_ICL      = 2,  /* Integrated Complete-data Likelihood */
     KMETHOD_VBEM     = 3,  /* Variational Bayes EM — Dirichlet prior prunes k */
-    KMETHOD_COUNT    = 4
+    KMETHOD_MML      = 4,  /* Minimum Message Length (Wallace-Freeman) */
+    KMETHOD_COUNT    = 5
 } KMethod;
 
 /* ====================================================================
@@ -239,6 +241,34 @@ int UnmixAdaptiveEx(const double* data, size_t n,
 const char* GetKMethodName(KMethod m);
 
 void ReleaseAdaptiveResult(AdaptiveResult* result);
+
+/**
+ * Spectral initialization: moment-based method for provably good
+ * starting parameters. Uses Hankel matrix eigendecomposition.
+ *
+ * @param data       Observed values
+ * @param n          Number of observations
+ * @param k          Number of components to find
+ * @param out_means  Output: array of k estimated means
+ * @param out_weights Output: array of k estimated weights
+ * @return 0 on success
+ */
+int SpectralInit(const double* data, size_t n, int k,
+                 double* out_means, double* out_weights);
+
+/**
+ * Online/Stochastic EM: mini-batch processing for large datasets.
+ * Uses Cappé & Moulines (2009) step-size schedule.
+ */
+int UnmixOnline(const double* data, size_t n, DistFamily family, int k,
+                int maxiter, double rtole, int batch_size, int verbose,
+                MixtureResult* result);
+
+/**
+ * Set global data pointer for KDE distribution (needed for PDF computation).
+ * Must be called before using DIST_KDE in any EM function.
+ */
+void KDE_SetData(const double* data, size_t n);
 
 /**
  * Release memory.

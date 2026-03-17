@@ -47,6 +47,8 @@ struct emsettings{
     bool kmeans_init = false;
     bool autoselect = false;
     bool adaptive = false;
+    bool online = false;
+    int batch_size = 0;
     KMethod kmethod = KMETHOD_BIC;
     double rtole;
 };
@@ -181,7 +183,12 @@ struct emsettings parseargs(int argc, char ** argv){
             else if (m == "aic" || m == "AIC") ems.kmethod = KMETHOD_AIC;
             else if (m == "icl" || m == "ICL") ems.kmethod = KMETHOD_ICL;
             else if (m == "vbem" || m == "VBEM") ems.kmethod = KMETHOD_VBEM;
-            else { cout << "ERROR: Unknown kmethod '" << m << "'. Use bic/aic/icl/vbem" << endl; exit(1); }
+            else if (m == "mml" || m == "MML") ems.kmethod = KMETHOD_MML;
+            else { cout << "ERROR: Unknown kmethod '" << m << "'. Use bic/aic/icl/vbem/mml" << endl; exit(1); }
+        } else if (string(argv[i]) == "--online" | string(argv[i]) == "--ONLINE"){
+            ems.online = true;
+        } else if (string(argv[i]) == "--batch-size" | string(argv[i]) == "--BATCH-SIZE"){
+            ems.batch_size = stoi(string(argv[i+1]));
         } else if (string(argv[i]) == "-d" | string(argv[i]) == "-D" | string(argv[i]) == "--DIST"){
             ems.distname = string(argv[i+1]);
         } else if (string(argv[i]) == "--kmax" | string(argv[i]) == "--KMAX"){
@@ -534,11 +541,23 @@ int main(int argc, char** argv)
                 return 1;
             }
 
-            cout << "INFO: Fitting " << GetDistName(fam) << " mixture with k=" << ems.kmixt << endl;
+            if (ems.online) {
+                cout << "INFO: Online EM — " << GetDistName(fam) << " mixture with k=" << ems.kmixt
+                     << ", batch_size=" << (ems.batch_size > 0 ? ems.batch_size : (int)fmin(256, umv.size()/4)) << endl;
+            } else {
+                cout << "INFO: Fitting " << GetDistName(fam) << " mixture with k=" << ems.kmixt << endl;
+            }
 
             MixtureResult result;
-            int rc = UnmixGeneric(umv.data(), umv.size(), fam, ems.kmixt,
+            int rc;
+            if (ems.online) {
+                rc = UnmixOnline(umv.data(), umv.size(), fam, ems.kmixt,
+                                 ems.maxitr, ems.rtole, ems.batch_size,
+                                 ems.verbose ? 1 : 0, &result);
+            } else {
+                rc = UnmixGeneric(umv.data(), umv.size(), fam, ems.kmixt,
                                   ems.maxitr, ems.rtole, ems.verbose ? 1 : 0, &result);
+            }
             if (rc == 0) {
                 cout << "INFO: Converged in " << result.iterations << " iterations" << endl;
                 cout << "INFO: LL=" << result.loglikelihood

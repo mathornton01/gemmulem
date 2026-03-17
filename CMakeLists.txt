@@ -45,5 +45,10 @@ target_link_libraries(test_adaptive em m)
 add_test(NAME unit_tests COMMAND test_em)
 add_test(NAME distribution_tests COMMAND test_distributions)
 add_test(NAME pearson_tests COMMAND test_pearson)
+add_executable(test_spectral_online_mml Test/test_spectral_online_mml.c)
+target_include_directories(test_spectral_online_mml PRIVATE "${PROJECT_SOURCE_DIR}/src/lib")
+target_link_libraries(test_spectral_online_mml em m)
+
 add_test(NAME adaptive_tests COMMAND test_adaptive)
+add_test(NAME spectral_online_mml_tests COMMAND test_spectral_online_mml)
 
