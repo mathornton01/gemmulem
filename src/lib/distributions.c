@@ -1444,23 +1444,40 @@ int UnmixGeneric(const double* data, size_t n, DistFamily family, int k,
 
     for (iter = 0; iter < maxiter; iter++) {
         /* ---- E-step: compute responsibilities ---- */
+        /* Precompute log-weights to avoid repeated log in inner loop */
+        double logw[64]; /* k <= 64 */
+        int kk = k < 64 ? k : 64;
+        for (int j = 0; j < kk; j++)
+            logw[j] = log(result->mixing_weights[j] > 1e-300 ? result->mixing_weights[j] : 1e-300);
+
         double ll = 0.0;
+        #ifdef _OPENMP
+        #pragma omp parallel for reduction(+:ll) schedule(static) if(n > 5000)
+        #endif
         for (size_t i = 0; i < n; i++) {
-            double total = 0;
-            for (int j = 0; j < k; j++) {
-                double p;
+            /* Log-sum-exp trick for numerical stability */
+            double lps[64];
+            double max_lp = -1e30;
+            for (int j = 0; j < kk; j++) {
+                double lp;
                 if (df->logpdf) {
-                    p = result->mixing_weights[j] * exp(df->logpdf(data[i], &result->params[j]));
+                    lp = logw[j] + df->logpdf(data[i], &result->params[j]);
                 } else {
-                    p = result->mixing_weights[j] * df->pdf(data[i], &result->params[j]);
+                    double pv = df->pdf(data[i], &result->params[j]);
+                    lp = logw[j] + (pv > 1e-300 ? log(pv) : -700);
                 }
-                if (p < PDF_FLOOR) p = PDF_FLOOR;
-                resp[j * n + i] = p;
-                total += p;
+                lps[j] = lp;
+                if (lp > max_lp) max_lp = lp;
+            }
+            double total = 0;
+            for (int j = 0; j < kk; j++) {
+                double v = exp(lps[j] - max_lp);
+                resp[j * n + i] = v;
+                total += v;
             }
             /* Normalize */
-            for (int j = 0; j < k; j++) resp[j * n + i] /= total;
-            ll += log(total);
+            for (int j = 0; j < kk; j++) resp[j * n + i] /= total;
+            ll += max_lp + log(total);
         }
 
         if (verbose) {
@@ -1506,8 +1523,9 @@ int UnmixGeneric(const double* data, size_t n, DistFamily family, int k,
         for (int j = 0; j < k; j++) result->mixing_weights[j] /= wsum;
 
         /* ---- SQUAREM acceleration (Varadhan & Roland 2008) every 3 iters ---- */
-        /* Only apply when convergence is slow (delta decaying geometrically) */
-        if (iter >= 4 && (iter % 3) == 0 && fabs(ll - prev_ll) < 10.0) {
+        /* Only apply when convergence is genuinely slow (iter > 20 means
+         * standard EM is struggling; skip for fast-converging cases) */
+        if (iter >= 20 && (iter % 3) == 0 && fabs(ll - prev_ll) < 1.0) {
             /* θ0 = params before this M-step; θ1 = params after first M-step;
              * θ2 = params after second M-step from θ1 */
             PACK_THETA(theta0);  /* current = after first M-step */

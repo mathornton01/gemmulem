@@ -30,6 +30,7 @@
 #include "EM.h"
 #include "distributions.h"
 #include "multivariate.h"
+#include "streaming.h"
 
 using namespace std;
 
@@ -51,6 +52,11 @@ struct emsettings{
     bool online = false;
     int batch_size = 0;
     bool multivariate = false;
+    bool mv_studentt = false;
+    bool mv_autok = false;
+    bool streaming = false;
+    int stream_chunk = 10000;
+    int stream_passes = 10;
     int mv_dim = 2;
     CovType cov_type = COV_FULL;
     KMethod kmethod = KMETHOD_BIC;
@@ -199,6 +205,18 @@ struct emsettings parseargs(int argc, char ** argv){
             kmax = stoi(string(argv[i+1]));
         } else if (string(argv[i]) == "--mv" || string(argv[i]) == "--multivariate"){
             ems.multivariate = true;
+        } else if (string(argv[i]) == "--mv-studentt" || string(argv[i]) == "--mvt"){
+            ems.multivariate = true;
+            ems.mv_studentt = true;
+        } else if (string(argv[i]) == "--mv-autok"){
+            ems.multivariate = true;
+            ems.mv_autok = true;
+        } else if (string(argv[i]) == "--stream" || string(argv[i]) == "--streaming"){
+            ems.streaming = true;
+        } else if (string(argv[i]) == "--chunk-size"){
+            ems.stream_chunk = stoi(string(argv[i+1]));
+        } else if (string(argv[i]) == "--passes"){
+            ems.stream_passes = stoi(string(argv[i+1]));
         } else if (string(argv[i]) == "--dim"){
             ems.mv_dim = stoi(string(argv[i+1]));
         } else if (string(argv[i]) == "--cov"){
@@ -456,35 +474,137 @@ int main(int argc, char** argv)
              << " cov=" << (ems.cov_type == COV_FULL ? "full" :
                             ems.cov_type == COV_DIAGONAL ? "diagonal" : "spherical") << endl;
 
-        MVMixtureResult mv_result;
-        int rc = UnmixMVGaussian(flat.data(), n_mv, d_detected, ems.kmixt,
+        int rc;
+
+        if (ems.mv_autok) {
+            /* Auto-k selection */
+            int kmax = ems.kmax > 0 ? ems.kmax : 8;
+            MVAutoKResult akr;
+            rc = UnmixMVAutoK(flat.data(), n_mv, d_detected, kmax,
+                              ems.cov_type, ems.maxitr, ems.rtole,
+                              ems.verbose ? 1 : 0, &akr);
+            if (rc == 0) {
+                cout << "INFO: Auto-k selected k=" << akr.best_k
+                     << "  BIC=" << akr.best_bic << endl;
+                MVMixtureResult& mr = akr.best_model;
+                cout << "INFO: LL=" << mr.loglikelihood
+                     << "  BIC=" << mr.bic
+                     << "  AIC=" << mr.aic << endl << endl;
+                for (int j = 0; j < mr.num_components; j++) {
+                    cout << "Component " << j << ": weight=" << mr.mixing_weights[j] << endl;
+                    cout << "  mean: [";
+                    for (int dd = 0; dd < d_detected; dd++)
+                        cout << (dd ? ", " : "") << mr.components[j].mean[dd];
+                    cout << "]" << endl;
+                }
+            }
+            ReleaseMVAutoKResult(&akr);
+        } else if (ems.mv_studentt) {
+            /* Student-t mixture */
+            MVStudentTResult tr;
+            rc = UnmixMVStudentT(flat.data(), n_mv, d_detected, ems.kmixt,
+                                 ems.cov_type, ems.maxitr, ems.rtole,
+                                 ems.verbose ? 1 : 0, &tr);
+            if (rc == 0) {
+                cout << "INFO: Converged in " << tr.iterations << " iterations" << endl;
+                cout << "INFO: LL=" << tr.loglikelihood
+                     << "  BIC=" << tr.bic << "  AIC=" << tr.aic << endl << endl;
+                for (int j = 0; j < tr.num_components; j++) {
+                    cout << "Component " << j << ": weight=" << tr.mixing_weights[j]
+                         << "  nu=" << tr.components[j].nu << endl;
+                    cout << "  mean: [";
+                    for (int dd = 0; dd < d_detected; dd++)
+                        cout << (dd ? ", " : "") << tr.components[j].mean[dd];
+                    cout << "]" << endl;
+                }
+            }
+            ReleaseMVStudentTResult(&tr);
+        } else {
+            /* Standard Gaussian */
+            MVMixtureResult mv_result;
+            rc = UnmixMVGaussian(flat.data(), n_mv, d_detected, ems.kmixt,
                                  ems.cov_type, ems.maxitr, ems.rtole,
                                  ems.verbose ? 1 : 0, &mv_result);
-        if (rc == 0) {
-            cout << "INFO: Converged in " << mv_result.iterations << " iterations" << endl;
-            cout << "INFO: LL=" << mv_result.loglikelihood
-                 << "  BIC=" << mv_result.bic
-                 << "  AIC=" << mv_result.aic << endl << endl;
-            for (int j = 0; j < mv_result.num_components; j++) {
-                cout << "Component " << j << ": weight=" << mv_result.mixing_weights[j] << endl;
-                cout << "  mean: [";
-                for (int dd = 0; dd < d_detected; dd++)
-                    cout << (dd ? ", " : "") << mv_result.components[j].mean[dd];
-                cout << "]" << endl;
-                if (ems.verbose) {
-                    cout << "  cov:" << endl;
-                    for (int a = 0; a < d_detected; a++) {
-                        cout << "    [";
-                        for (int b = 0; b < d_detected; b++)
-                            cout << (b ? ", " : "") << mv_result.components[j].cov[a*d_detected+b];
-                        cout << "]" << endl;
+            if (rc == 0) {
+                cout << "INFO: Converged in " << mv_result.iterations << " iterations" << endl;
+                cout << "INFO: LL=" << mv_result.loglikelihood
+                     << "  BIC=" << mv_result.bic
+                     << "  AIC=" << mv_result.aic << endl << endl;
+                for (int j = 0; j < mv_result.num_components; j++) {
+                    cout << "Component " << j << ": weight=" << mv_result.mixing_weights[j] << endl;
+                    cout << "  mean: [";
+                    for (int dd = 0; dd < d_detected; dd++)
+                        cout << (dd ? ", " : "") << mv_result.components[j].mean[dd];
+                    cout << "]" << endl;
+                    if (ems.verbose) {
+                        cout << "  cov:" << endl;
+                        for (int a = 0; a < d_detected; a++) {
+                            cout << "    [";
+                            for (int b = 0; b < d_detected; b++)
+                                cout << (b ? ", " : "") << mv_result.components[j].cov[a*d_detected+b];
+                            cout << "]" << endl;
+                        }
                     }
                 }
             }
-        } else {
-            cerr << "ERROR: Multivariate EM failed (rc=" << rc << ")" << endl;
+            ReleaseMVMixtureResult(&mv_result);
         }
-        ReleaseMVMixtureResult(&mv_result);
+        if (rc != 0) cerr << "ERROR: Multivariate EM failed (rc=" << rc << ")" << endl;
+        return rc;
+    }
+
+    /* ════════════════════════════════════════════════════════════════
+     * STREAMING EM — file-based chunked processing
+     * ════════════════════════════════════════════════════════════════ */
+    if (ems.streaming) {
+        string datafile = ems.valfilename;
+        if (datafile.empty()) {
+            cerr << "ERROR: Streaming mode requires -g <file>" << endl;
+            return 1;
+        }
+
+        DistFamily fam = DIST_GAUSSIAN;
+        if (!ems.distname.empty()) {
+            string dn = ems.distname;
+            for (auto& c : dn) c = tolower(c);
+            if (dn == "gaussian" || dn == "normal") fam = DIST_GAUSSIAN;
+            else if (dn == "exponential" || dn == "exp") fam = DIST_EXPONENTIAL;
+            else if (dn == "gamma") fam = DIST_GAMMA;
+            else if (dn == "laplace") fam = DIST_LAPLACE;
+            else if (dn == "studentt" || dn == "t") fam = DIST_STUDENT_T;
+        }
+
+        StreamConfig scfg;
+        scfg.num_components = ems.kmixt;
+        scfg.chunk_size = ems.stream_chunk;
+        scfg.max_passes = ems.stream_passes;
+        scfg.rtole = ems.rtole;
+        scfg.verbose = ems.verbose ? 1 : 0;
+        scfg.family = fam;
+        scfg.eta_decay = 0.6;
+
+        cout << "INFO: Streaming EM — " << GetDistName(fam)
+             << " k=" << ems.kmixt
+             << " chunk=" << ems.stream_chunk
+             << " passes=" << ems.stream_passes << endl;
+
+        MixtureResult result;
+        int rc = UnmixStreaming(datafile.c_str(), &scfg, &result);
+        if (rc == 0) {
+            cout << "INFO: LL=" << result.loglikelihood
+                 << "  BIC=" << result.bic
+                 << "  AIC=" << result.aic << endl << endl;
+            const DistFunctions* df = GetDistFunctions(fam);
+            for (int j = 0; j < result.num_components; j++) {
+                cout << "Component " << j << ": weight=" << result.mixing_weights[j];
+                for (int p = 0; p < df->num_params; p++)
+                    cout << "  p" << p << "=" << result.params[j].p[p];
+                cout << endl;
+            }
+        } else {
+            cerr << "ERROR: Streaming EM failed (rc=" << rc << ")" << endl;
+        }
+        ReleaseMixtureResult(&result);
         return rc;
     }
 

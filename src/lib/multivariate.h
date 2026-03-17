@@ -70,6 +70,65 @@ void ReleaseMVMixtureResult(MVMixtureResult* result);
 double mvgauss_pdf(const double* x, const MVGaussParams* p);
 double mvgauss_logpdf(const double* x, const MVGaussParams* p);
 
+/* ════════════════════════════════════════════════════════════════════
+ * Multivariate Student-t mixture EM
+ * ════════════════════════════════════════════════════════════════════ */
+
+/* Per-component multivariate Student-t parameters */
+typedef struct {
+    int dim;
+    double* mean;         /* [dim] */
+    double* cov;          /* [dim*dim] scale matrix */
+    double* cov_chol;     /* [dim*dim] Cholesky of scale matrix */
+    double log_det;
+    double nu;            /* degrees of freedom */
+} MVStudentTParams;
+
+typedef struct {
+    int num_components;
+    int dim;
+    int iterations;
+    double loglikelihood;
+    double bic;
+    double aic;
+    CovType cov_type;
+    double* mixing_weights;
+    MVStudentTParams* components;
+} MVStudentTResult;
+
+/**
+ * Multivariate Student-t mixture EM.
+ * Robust to outliers due to heavy tails.
+ */
+int UnmixMVStudentT(const double* data, size_t n, int d, int k,
+                    CovType cov_type, int maxiter, double rtole,
+                    int verbose, MVStudentTResult* result);
+
+void ReleaseMVStudentTResult(MVStudentTResult* result);
+
+/* ════════════════════════════════════════════════════════════════════
+ * Multivariate auto-k selection
+ * ════════════════════════════════════════════════════════════════════ */
+
+typedef struct {
+    int best_k;
+    int dim;
+    double best_bic;
+    double best_ll;
+    CovType cov_type;
+    MVMixtureResult best_model;
+} MVAutoKResult;
+
+/**
+ * Automatically select k for multivariate Gaussian using BIC.
+ * Fits k=1..k_max and returns the model with lowest BIC.
+ */
+int UnmixMVAutoK(const double* data, size_t n, int d, int k_max,
+                 CovType cov_type, int maxiter, double rtole,
+                 int verbose, MVAutoKResult* result);
+
+void ReleaseMVAutoKResult(MVAutoKResult* result);
+
 #ifdef __cplusplus
 }
 #endif

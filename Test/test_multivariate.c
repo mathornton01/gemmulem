@@ -188,9 +188,76 @@ void test_bic_k_selection(void) {
     free(data);
 }
 
+/* ─── Test 6: MV Student-t recovers means ─── */
+void test_mv_studentt(void) {
+    printf("Test: MV Student-t k=2\n");
+    unsigned seed = 7890;
+    int n = 2000, d = 2;
+    double* data = malloc(sizeof(double) * n * d);
+
+    for (int i = 0; i < n/2; i++) {
+        data[i*d+0] = randn(-5, 1, &seed);
+        data[i*d+1] = randn(-5, 1, &seed);
+    }
+    for (int i = n/2; i < n; i++) {
+        data[i*d+0] = randn(5, 1, &seed);
+        data[i*d+1] = randn(5, 1, &seed);
+    }
+    /* Add some outliers */
+    for (int i = 0; i < 20; i++) {
+        data[i*d+0] = randn(0, 20, &seed);
+        data[i*d+1] = randn(0, 20, &seed);
+    }
+
+    MVStudentTResult r;
+    int rc = UnmixMVStudentT(data, n, d, 2, COV_FULL, 200, 1e-5, 0, &r);
+    ASSERT_TRUE(rc == 0, "MV Student-t succeeds");
+    ASSERT_TRUE(r.num_components == 2, "k=2 preserved");
+
+    int lo = r.components[0].mean[0] < r.components[1].mean[0] ? 0 : 1;
+    int hi = 1 - lo;
+    printf("    mean[0]: (%.2f, %.2f)  mean[1]: (%.2f, %.2f)\n",
+           r.components[lo].mean[0], r.components[lo].mean[1],
+           r.components[hi].mean[0], r.components[hi].mean[1]);
+    printf("    nu: %.1f, %.1f\n", r.components[0].nu, r.components[1].nu);
+
+    ASSERT_CLOSE(r.components[lo].mean[0], -5.0, 2.0, "MVT lower mean near -5");
+    ASSERT_CLOSE(r.components[hi].mean[0],  5.0, 2.0, "MVT upper mean near 5");
+    ASSERT_TRUE(r.components[0].nu > 0, "nu > 0");
+
+    ReleaseMVStudentTResult(&r);
+    free(data);
+}
+
+/* ─── Test 7: MV Auto-k selects correct k ─── */
+void test_mv_autok(void) {
+    printf("Test: MV Auto-k\n");
+    unsigned seed = 1357;
+    int n = 2000, d = 2;
+    double* data = malloc(sizeof(double) * n * d);
+
+    for (int i = 0; i < n/2; i++) {
+        data[i*d+0] = randn(-6, 0.8, &seed);
+        data[i*d+1] = randn(-6, 0.8, &seed);
+    }
+    for (int i = n/2; i < n; i++) {
+        data[i*d+0] = randn(6, 0.8, &seed);
+        data[i*d+1] = randn(6, 0.8, &seed);
+    }
+
+    MVAutoKResult r;
+    int rc = UnmixMVAutoK(data, n, d, 5, COV_DIAGONAL, 200, 1e-5, 0, &r);
+    ASSERT_TRUE(rc == 0, "MV Auto-k succeeds");
+    printf("    Selected k=%d  BIC=%.1f\n", r.best_k, r.best_bic);
+    ASSERT_TRUE(r.best_k >= 2, "Auto-k finds at least 2 components");
+
+    ReleaseMVAutoKResult(&r);
+    free(data);
+}
+
 int main(void) {
     printf("\n========================================\n");
-    printf("  Multivariate Gaussian EM Tests\n");
+    printf("  Multivariate EM Tests\n");
     printf("========================================\n\n");
 
     test_mvgauss_pdf();
@@ -198,6 +265,8 @@ int main(void) {
     test_2d_spherical();
     test_3d_k3_diagonal();
     test_bic_k_selection();
+    test_mv_studentt();
+    test_mv_autok();
 
     printf("\n========================================\n");
     printf("  Results: %d/%d passed", tests_passed, tests_run);
