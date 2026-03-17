@@ -47,6 +47,7 @@ struct emsettings{
     bool kmeans_init = false;
     bool autoselect = false;
     bool adaptive = false;
+    KMethod kmethod = KMETHOD_BIC;
     double rtole;
 };
 struct genesamfile{
@@ -174,6 +175,13 @@ struct emsettings parseargs(int argc, char ** argv){
             ems.autoselect = true;
         } else if (string(argv[i]) == "--adaptive" | string(argv[i]) == "--ADAPTIVE"){
             ems.adaptive = true;
+        } else if (string(argv[i]) == "--kmethod" | string(argv[i]) == "--KMETHOD"){
+            string m = string(argv[i+1]);
+            if (m == "bic" || m == "BIC") ems.kmethod = KMETHOD_BIC;
+            else if (m == "aic" || m == "AIC") ems.kmethod = KMETHOD_AIC;
+            else if (m == "icl" || m == "ICL") ems.kmethod = KMETHOD_ICL;
+            else if (m == "vbem" || m == "VBEM") ems.kmethod = KMETHOD_VBEM;
+            else { cout << "ERROR: Unknown kmethod '" << m << "'. Use bic/aic/icl/vbem" << endl; exit(1); }
         } else if (string(argv[i]) == "-d" | string(argv[i]) == "-D" | string(argv[i]) == "--DIST"){
             ems.distname = string(argv[i+1]);
         } else if (string(argv[i]) == "--kmax" | string(argv[i]) == "--KMAX"){
@@ -403,19 +411,23 @@ int main(int argc, char** argv)
         if (k_max < k_min) k_max = k_min;
 
         if (ems.adaptive) {
-            cout << "INFO: Adaptive mode — discovering k AND distribution families from data" << endl;
+            cout << "INFO: Adaptive mode — k-selection: " << GetKMethodName(ems.kmethod)
+                 << ", discovering distribution families from data" << endl;
 
             AdaptiveResult aResult;
-            int rc = UnmixAdaptive(umv.data(), umv.size(),
-                                    k_max, ems.maxitr, ems.rtole,
-                                    ems.verbose ? 1 : 0, &aResult);
+            int rc = UnmixAdaptiveEx(umv.data(), umv.size(),
+                                     k_max, ems.maxitr, ems.rtole,
+                                     ems.verbose ? 1 : 0, ems.kmethod, &aResult);
             if (rc == 0) {
                 cout << endl;
                 cout << "========================================" << endl;
-                cout << "  Adaptive Result: k=" << aResult.num_components << endl;
+                cout << "  Adaptive Result: k=" << aResult.num_components
+                     << "  (method: " << GetKMethodName(ems.kmethod) << ")" << endl;
                 cout << "  LL  = " << aResult.loglikelihood << endl;
                 cout << "  BIC = " << aResult.bic << endl;
                 cout << "  AIC = " << aResult.aic << endl;
+                if (ems.kmethod == KMETHOD_ICL)
+                    cout << "  ICL = " << aResult.icl << endl;
                 cout << "========================================" << endl;
                 cout << endl;
 

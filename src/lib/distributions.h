@@ -170,6 +170,17 @@ int SelectBestMixture(const double* data, size_t n,
                       ModelSelectResult* result);
 
 /* ====================================================================
+ * Component-count selection methods
+ * ==================================================================== */
+typedef enum {
+    KMETHOD_BIC      = 0,  /* BIC-driven split-merge (default) */
+    KMETHOD_AIC      = 1,  /* AIC-driven split-merge (less penalizing) */
+    KMETHOD_ICL      = 2,  /* Integrated Complete-data Likelihood */
+    KMETHOD_VBEM     = 3,  /* Variational Bayes EM — Dirichlet prior prunes k */
+    KMETHOD_COUNT    = 4
+} KMethod;
+
+/* ====================================================================
  * Adaptive Mixture Result (mixed-family, auto-k)
  * ==================================================================== */
 typedef struct {
@@ -178,6 +189,8 @@ typedef struct {
     double loglikelihood;
     double bic;
     double aic;
+    double icl;                 /* ICL criterion (BIC + entropy) */
+    KMethod kmethod;            /* which method was used */
     double* mixing_weights;     /* [num_components] */
     DistParams* params;         /* [num_components] */
     DistFamily* families;       /* [num_components] — family PER component */
@@ -208,6 +221,22 @@ typedef struct {
 int UnmixAdaptive(const double* data, size_t n,
                   int k_max, int maxiter, double rtole, int verbose,
                   AdaptiveResult* result);
+
+/**
+ * Adaptive EM with explicit k-selection method.
+ * Same as UnmixAdaptive but allows choosing how k is determined.
+ *
+ * @param kmethod  KMETHOD_BIC (default split-merge), KMETHOD_AIC,
+ *                 KMETHOD_ICL, or KMETHOD_VBEM (variational Bayes)
+ */
+int UnmixAdaptiveEx(const double* data, size_t n,
+                    int k_max, int maxiter, double rtole, int verbose,
+                    KMethod kmethod, AdaptiveResult* result);
+
+/**
+ * Get k-method name string.
+ */
+const char* GetKMethodName(KMethod m);
 
 void ReleaseAdaptiveResult(AdaptiveResult* result);
 
