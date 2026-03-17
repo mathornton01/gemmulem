@@ -14,6 +14,20 @@
 
 #include "distributions.h"
 #include "pearson.h"
+#include "gpu_estep.h"
+
+/* Global GPU context — initialized on first use, NULL if unavailable */
+static GpuContext* g_gpu_ctx = NULL;
+static int g_gpu_tried = 0;
+
+static GpuContext* get_gpu(void) {
+    if (!g_gpu_tried) {
+        g_gpu_tried = 1;
+        g_gpu_ctx = gpu_init(1);  /* prefer GPU */
+        if (g_gpu_ctx) fprintf(stderr, "[GPU] OpenCL E-step enabled\n");
+    }
+    return g_gpu_ctx;
+}
 
 /* Forward declaration */
 DistFunctions pearson_get_dist_functions(void);
@@ -1451,6 +1465,39 @@ int UnmixGeneric(const double* data, size_t n, DistFamily family, int k,
             logw[j] = log(result->mixing_weights[j] > 1e-300 ? result->mixing_weights[j] : 1e-300);
 
         double ll = 0.0;
+
+        /* GPU path: try OpenCL for Gaussian E-step when n is large */
+        int used_gpu = 0;
+        if (family == DIST_GAUSSIAN && n >= 50000) {
+            GpuContext* gpu = get_gpu();
+            if (gpu) {
+                float* fdata  = (float*)malloc(sizeof(float) * n);
+                float* flw    = (float*)malloc(sizeof(float) * kk);
+                float* fmu    = (float*)malloc(sizeof(float) * kk);
+                float* fvar   = (float*)malloc(sizeof(float) * kk);
+                float* fresp  = (float*)malloc(sizeof(float) * kk * n);
+
+                for (size_t i = 0; i < n; i++) fdata[i] = (float)data[i];
+                for (int j = 0; j < kk; j++) {
+                    flw[j]  = (float)logw[j];
+                    fmu[j]  = (float)result->params[j].p[0];
+                    fvar[j] = (float)(result->params[j].nparams >= 2 ?
+                                      result->params[j].p[1] : 1.0);
+                }
+
+                int rc = gpu_estep_gaussian(gpu, fdata, (int)n, flw, fmu, fvar,
+                                             kk, fresp, &ll);
+                if (rc == 0) {
+                    for (int j = 0; j < kk; j++)
+                        for (size_t i = 0; i < n; i++)
+                            resp[j * n + i] = fresp[j * n + i];
+                    used_gpu = 1;
+                }
+                free(fdata); free(flw); free(fmu); free(fvar); free(fresp);
+            }
+        }
+
+        if (!used_gpu) {
         #ifdef _OPENMP
         #pragma omp parallel for reduction(+:ll) schedule(static) if(n > 5000)
         #endif
@@ -1479,6 +1526,7 @@ int UnmixGeneric(const double* data, size_t n, DistFamily family, int k,
             for (int j = 0; j < kk; j++) resp[j * n + i] /= total;
             ll += max_lp + log(total);
         }
+        } /* end if (!used_gpu) */
 
         if (verbose) {
             printf("  [%s k=%d] iter %d  LL=%.4f  delta=%.2e\n",
@@ -2225,6 +2273,10 @@ static int adaptive_vbem(const double* data, size_t n,
 {
     if (k_max <= 0) k_max = 10;
     int k = k_max;  /* start with maximum components */
+    /* VBEM converges faster than split-merge — cap iterations */
+    if (maxiter > 100) maxiter = 100;
+    /* Relax tolerance for VBEM — we're looking for approximate k, not exact convergence */
+    if (rtole < 0.01) rtole = 0.01;
 
     double* mix_w = (double*)malloc(sizeof(double) * k);
     DistParams* par = (DistParams*)malloc(sizeof(DistParams) * k);
@@ -2298,8 +2350,9 @@ static int adaptive_vbem(const double* data, size_t n,
             /* Skip parameter update for nearly-dead components */
             if (nj < 1.0) continue;
 
-            /* Family reselection every 5 iters */
-            if (iter % 5 == 0) {
+            /* VBEM uses Gaussian only — family selection is too expensive inside the inner loop.
+             * For adaptive family discovery, use adaptive_split_merge() instead. */
+            if (0) {  /* disabled for VBEM performance */
                 int comp_positive = 1;
                 for (size_t i = 0; i < n; i++)
                     if (wj[i] > 0.01 && data[i] <= 0) { comp_positive = 0; break; }
