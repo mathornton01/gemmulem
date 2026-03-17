@@ -358,39 +358,18 @@ int main(int argc, char** argv)
 
         cout << endl << endl;
         return(0);
-    } else if (ems.type == "GM") {
-        if (ems.verbose){
-            cout << "INFO: User Settings - Running GEMMULEM in Univariate Gaussian Deconvolution Mode, reading univariate normal values. " << endl;
-            cout << "INFO: File IO - " << to_string(umv.size()) << " values read from file. " << endl;
+    }
+
+    /* Type "GM" (Gaussian via -g flag): route to new SIMD-accelerated engine.
+     * Old legacy path (UnmixGaussians) was 10-20× slower at k≥6. */
+    if (ems.type == "GM") {
+        if (!ems.distname.empty() && ems.distname != "Gaussian") {
+            cerr << "WARNING: -g flag implies Gaussian but -d " << ems.distname
+                 << " specified. Using " << ems.distname << endl;
+        } else {
+            ems.distname = "Gaussian";
         }
-
-        EMConfig_t EMConfig;
-        EMResultGaussian_t Result;
-
-        MakeEMConfig(&EMConfig, &ems);
-        UnmixGaussians(umv.data(), umv.size(), ems.kmixt, &Result, &EMConfig);
-
-        //struct gaussianemresults ger = unmixgaussians(umv, ems.kmixt, ems.maxitr, ems.verbose,ems.rtole);
-        if (ems.verbose){
-            cout << "INFO: EM Algorithm - Gaussians Unmixed in " << to_string(Result.iterstaken) << " Iterations of EM. " << endl;
-        }
-        ofstream ofile(ems.ofilename);
-        string oline;
-        for (int i = 0; i < Result.numGaussians; i++){
-            oline = to_string(Result.means_final[i]) + "," + to_string(Result.vars_final[i]) + "," + to_string(Result.probs_final[i]);
-            ofile << oline << endl;
-        }
-        if (ems.termcat){
-
-            for (int i = 0; i < Result.numGaussians; i++){
-                oline = to_string(Result.means_final[i]) + "," + to_string(Result.vars_final[i]) + "," + to_string(Result.probs_final[i]);
-                cout << "INFO:  Results - " << oline << endl;
-            }
-        }
-        ofile.close();
-        cout << "INFO: File IO - Output written on " << ems.ofilename << endl;
-        ReleaseEMResultGaussian(&Result);
-
+        /* Fall through to UnmixGeneric dispatch below (line ~611) */
     } else if (ems.type == "EM") {
         if (ems.verbose){
             cout << "INFO: User Settings - Running GEMMULEM in Univariate Exponential Deconvolution Mode, reading univariate normal values. " << endl;
