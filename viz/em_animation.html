@@ -365,6 +365,222 @@ class EMState {
 }
 
 // ════════════════════════════════════════════════════════════════════
+// Adaptive EM: discovers k AND family per component
+// ════════════════════════════════════════════════════════════════════
+
+const ALL_FAMILIES = ['gaussian', 'student_t', 'laplace', 'gamma'];
+
+function bestFamilyForComponent(data, weights) {
+  let bestWLL = -Infinity, bestFam = 'gaussian';
+  const sw = weights.reduce((a,b)=>a+b,0);
+  if (sw < 3) return 'gaussian';
+  const allPos = data.every((x,i) => weights[i] < 0.01 || x > 0);
+  const families = allPos ? ALL_FAMILIES : ['gaussian','student_t','laplace'];
+  for (const fam of families) {
+    const dist = Distributions[fam];
+    if (!dist) continue;
+    // estimate params
+    const params = dist.estimate(data, weights);
+    // compute weighted log-likelihood with param penalty
+    let wll = 0;
+    for (let i = 0; i < data.length; i++) {
+      if (weights[i] < 1e-10) continue;
+      const lp = dist.logpdf(data[i], params);
+      if (isFinite(lp)) wll += weights[i] * lp;
+    }
+    wll -= 0.5 * params.length * Math.log(sw);
+    if (wll > bestWLL) { bestWLL = wll; bestFam = fam; }
+  }
+  return bestFam;
+}
+
+function bimodalityCoeff(data, weights) {
+  const sw = weights.reduce((a,b)=>a+b,0);
+  if (sw < 5) return 0;
+  const mu = data.reduce((s,x,i)=>s+weights[i]*x,0)/sw;
+  let m2=0,m3=0,m4=0;
+  for (let i=0;i<data.length;i++) {
+    const d=data[i]-mu, w=weights[i];
+    m2+=w*d*d; m3+=w*d*d*d; m4+=w*d*d*d*d;
+  }
+  m2/=sw; m3/=sw; m4/=sw;
+  if (m2<1e-10) return 0;
+  const g1sq = (m3*m3)/(m2*m2*m2);
+  const g2 = m4/(m2*m2)-3;
+  return (g1sq+1)/Math.max(0.1, g2+3);
+}
+
+class AdaptiveEMState {
+  constructor(data, kMax=8) {
+    this.data = data;
+    this.kMax = kMax;
+    this.n = data.length;
+    this.maxIter = 300;
+    this.converged = false;
+    this.llHistory = [];
+    this.ll = -Infinity;
+    this.iter = 0;
+
+    // Current model
+    this.k = 1;
+    this.families = ['gaussian'];
+    const g = Distributions.gaussian;
+    const mu = data.reduce((a,b)=>a+b,0)/data.length;
+    const v = Math.max(1e-6, data.reduce((s,x)=>s+(x-mu)**2,0)/data.length);
+    this.params = [[mu, v]];
+    this.weights = [1.0];
+    this.resp = [new Float64Array(data.length).fill(1)];
+
+    // Best model tracking
+    this.bestBIC = Infinity;
+    this.bestK = 1;
+    this.bestFamilies = ['gaussian'];
+    this.bestParams = [[mu, v]];
+    this.bestWeights = [1.0];
+
+    // Phase tracking
+    this.phase = 'inner'; // 'inner' | 'split' | 'done'
+    this.innerIter = 0;
+    this.outerIter = 0;
+    this.noImproveCount = 0;
+    this.phaseLabel = 'Fitting k=1';
+  }
+
+  _computeResp() {
+    const n = this.n, k = this.k;
+    let ll = 0;
+    for (let i = 0; i < n; i++) {
+      let total = 0;
+      const pv = Array(k);
+      for (let j = 0; j < k; j++) {
+        const dist = Distributions[this.families[j]];
+        let p = this.weights[j] * Math.exp(dist.logpdf(this.data[i], this.params[j]));
+        if (!isFinite(p) || p < 1e-300) p = 1e-300;
+        pv[j] = p; total += p;
+      }
+      for (let j = 0; j < k; j++) this.resp[j][i] = pv[j]/total;
+      ll += Math.log(total);
+    }
+    return ll;
+  }
+
+  _bic() {
+    let nfree = -1;
+    for (let j=0;j<this.k;j++) nfree += this.params[j].length + 1;
+    return -2*this.ll + nfree*Math.log(this.n);
+  }
+
+  step() {
+    if (this.converged) return;
+
+    if (this.phase === 'inner') {
+      // E-step
+      const ll = this._computeResp();
+      const prev = this.ll;
+      this.ll = ll;
+      this.llHistory.push(ll);
+
+      // M-step
+      for (let j = 0; j < this.k; j++) {
+        const wj = Array.from(this.resp[j]);
+        const nj = wj.reduce((a,b)=>a+b,0);
+        this.weights[j] = Math.max(1e-10, nj/this.n);
+        // Family reselection every 5 iters
+        if (this.innerIter % 5 === 0) {
+          this.families[j] = bestFamilyForComponent(this.data, wj);
+        }
+        const dist = Distributions[this.families[j]];
+        this.params[j] = dist.estimate(this.data, wj);
+      }
+      const wsum = this.weights.slice(0,this.k).reduce((a,b)=>a+b,0);
+      for (let j=0;j<this.k;j++) this.weights[j]/=wsum;
+
+      this.innerIter++;
+      this.iter++;
+
+      const delta = ll - prev;
+      if (this.innerIter >= this.maxIter || (this.innerIter > 2 && Math.abs(delta) < 1e-5)) {
+        this.phase = 'split';
+        this.innerIter = 0;
+        this.outerIter++;
+      }
+
+    } else if (this.phase === 'split') {
+      // Evaluate BIC
+      const bic = this._bic();
+      if (bic < this.bestBIC - 1.0) {
+        this.bestBIC = bic;
+        this.bestK = this.k;
+        this.bestFamilies = [...this.families];
+        this.bestParams = this.params.map(p=>[...p]);
+        this.bestWeights = [...this.weights];
+        this.noImproveCount = 0;
+      } else {
+        this.noImproveCount++;
+      }
+
+      if (this.k >= this.kMax || this.noImproveCount >= 3) {
+        this.converged = true;
+        this.phase = 'done';
+        // Restore best model
+        this.k = this.bestK;
+        this.families = this.bestFamilies;
+        this.params = this.bestParams;
+        this.weights = this.bestWeights;
+        this.resp = Array.from({length:this.k}, ()=>new Float64Array(this.n));
+        this._computeResp();
+        return;
+      }
+
+      // Find most bimodal component to split
+      let maxBC = 0, splitJ = 0;
+      for (let j=0;j<this.k;j++) {
+        const wj = Array.from(this.resp[j]);
+        const bc = bimodalityCoeff(this.data, wj);
+        if (bc > maxBC) { maxBC = bc; splitJ = j; }
+      }
+
+      this.phaseLabel = `Split comp ${splitJ} (BC=${maxBC.toFixed(2)}) → k=${this.k+1}`;
+
+      // Split
+      const mu = this.params[splitJ][0];
+      const sig = Math.sqrt(Math.abs(this.params[splitJ][1] || this.params[splitJ][0] || 1));
+      const newParams = [...this.params[splitJ]];
+      newParams[0] = mu + sig*0.5;
+      this.params[splitJ] = [...this.params[splitJ]];
+      this.params[splitJ][0] = mu - sig*0.5;
+      this.params.push(newParams);
+      this.families.push(this.families[splitJ]);
+      const w = this.weights[splitJ];
+      this.weights[splitJ] = w*0.5;
+      this.weights.push(w*0.5);
+      this.resp.push(new Float64Array(this.n));
+      this.k++;
+
+      this.phase = 'inner';
+    }
+  }
+
+  runToConverge() {
+    while (!this.converged) this.step();
+  }
+
+  pdf(x) {
+    let p = 0;
+    for (let j=0;j<this.k;j++) {
+      const dist = Distributions[this.families[j]];
+      p += this.weights[j] * Math.exp(dist.logpdf(x, this.params[j]));
+    }
+    return p;
+  }
+
+  bic() { return this.bestBIC; }
+
+  // Compatibility properties for render functions
+  get dist() { return { label: (p,j) => `${this.families[j]||''}: ${Distributions[this.families[j]]?.label(p)||''}` }; }
+}
+
+// ════════════════════════════════════════════════════════════════════
 // Scenarios
 // ════════════════════════════════════════════════════════════════════
 function randNorm(mu=0, sd=1) {
@@ -388,6 +604,22 @@ function randExp(rate=1) { return -Math.log(Math.random()+1e-10)/rate; }
 function randLaplace(mu, b) { const u=Math.random()-0.5; return mu - b*Math.sign(u)*Math.log(1-2*Math.abs(u)+1e-10); }
 
 const SCENARIOS = [
+  {
+    name: "🔮 Adaptive (auto-k + auto-family)",
+    desc: "Gaussian + Gamma: discovers both",
+    family: "adaptive", k: 5,
+    gen: () => [...Array(500)].map(()=>randNorm(-5,1))
+               .concat([...Array(500)].map(()=>randGamma(4,2)))
+  },
+  {
+    name: "🔮 Adaptive: heavy tails",
+    desc: "Normal + Student-t mixture",
+    family: "adaptive", k: 5,
+    gen: () => {
+      const t3 = ()=>{ const x=randNorm(),y=randNorm(); return x/Math.max(0.3,Math.abs(y))*1.2; };
+      return [...Array(500)].map(()=>randNorm(-4,0.8)).concat([...Array(500)].map(()=>t3()+4));
+    }
+  },
   {
     name: "Two Gaussians (separated)",
     desc: "N(-5,1) + N(5,1.5), k=2",
@@ -551,15 +783,20 @@ function drawMain(em) {
     ctx.fillText(v.toFixed(1), toX(v), H-4);
   }
 
-  // component mean markers
+  // component mean markers + adaptive family labels
+  const isAdaptive = em instanceof AdaptiveEMState;
   for (let j=0;j<em.k;j++) {
     const mu = em.params[j][0];
     if (mu < xLo || mu > xHi) continue;
     const col = COMP_COLORS[j%COMP_COLORS.length];
     ctx.strokeStyle = col; ctx.lineWidth=1.5; ctx.setLineDash([2,2]);
-    ctx.beginPath(); ctx.moveTo(toX(mu),histBase); ctx.lineTo(toX(mu),histBase-histH*0.9); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(toX(mu),histBase); ctx.lineTo(toX(mu),histBase-histH*0.85); ctx.stroke();
     ctx.setLineDash([]);
     ctx.fillStyle = col; ctx.fillRect(toX(mu)-3,histBase-6,6,6);
+    if (isAdaptive && em.families[j]) {
+      ctx.fillStyle = col; ctx.font = "bold 11px monospace"; ctx.textAlign="center";
+      ctx.fillText(em.families[j].substring(0,7), toX(mu), histBase-histH*0.88);
+    }
   }
 }
 
@@ -622,14 +859,21 @@ function updateSidebar(em) {
   }
 
   const cards = document.getElementById("compCards");
+  const isAdaptive = em instanceof AdaptiveEMState;
   cards.innerHTML = em.params.map((p,j)=>{
     const col = COMP_COLORS[j%COMP_COLORS.length];
     const w = (em.weights[j]*100).toFixed(1);
+    const famName = isAdaptive ? (em.families[j]||'?') : em.dist.name;
+    const dist = Distributions[famName];
+    const paramStr = dist ? dist.label(p) : p.map(v=>v.toFixed(2)).join(', ');
     return `<div class="comp-card" style="border-color:${col};background:rgba(${hexToRgb(col)},0.08)">
       <div class="comp-name" style="color:${col}">Component ${j+1} — ${w}%</div>
-      <div class="comp-params">${em.dist.label(p)}</div>
+      <div class="comp-params"><em style="color:${col}">${famName}</em> ${paramStr}</div>
     </div>`;
   }).join("");
+  if (isAdaptive && em.phaseLabel && !em.converged) {
+    cards.innerHTML += `<div style="margin-top:6px;font-size:0.75rem;color:var(--warn)">⚡ ${em.phaseLabel}</div>`;
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -665,9 +909,13 @@ function resetEM() {
   stopAnim();
   const s = SCENARIOS[activeScenario];
   const k = parseInt(document.getElementById("selK").value);
-  const family = document.getElementById("selFamily").value;
+  const family = s.family === "adaptive" ? "adaptive" : document.getElementById("selFamily").value;
   const data = s.gen();
-  em = new EMState(data, k, family);
+  if (family === "adaptive") {
+    em = new AdaptiveEMState(data, k);
+  } else {
+    em = new EMState(data, k, family);
+  }
   drawMain(em);
   drawLL(em.llHistory);
   updateSidebar(em);

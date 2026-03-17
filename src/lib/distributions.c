@@ -869,6 +869,426 @@ int SelectBestMixture(const double* data, size_t n,
 
 
 /* ====================================================================
+ * Adaptive Mixed-Family EM with Auto-k
+ *
+ * Each component independently discovers its best distribution family.
+ * The number of components is discovered via split-merge operations
+ * driven by BIC improvement.
+ * ==================================================================== */
+
+/* Candidate families for adaptive selection (skip Pearson — too slow for inner loop) */
+static const DistFamily ADAPT_FAMILIES_REAL[] = {
+    DIST_GAUSSIAN, DIST_STUDENT_T, DIST_LAPLACE, DIST_CAUCHY
+};
+static const int N_ADAPT_REAL = 4;
+
+static const DistFamily ADAPT_FAMILIES_POS[] = {
+    DIST_EXPONENTIAL, DIST_GAMMA, DIST_LOGNORMAL, DIST_WEIBULL,
+    DIST_INVGAUSS, DIST_RAYLEIGH
+};
+static const int N_ADAPT_POS = 6;
+
+/* Weighted log-likelihood for a single component under a given family */
+static double component_wll(const double* data, const double* weights,
+                            size_t n, DistFamily fam, DistParams* out_params)
+{
+    const DistFunctions* df = GetDistFunctions(fam);
+    if (!df) return -1e30;
+
+    /* Check domain validity */
+    double sw = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (weights[i] > 1e-10 && !df->valid(data[i])) return -1e30;
+        sw += weights[i];
+    }
+    if (sw < 1.0) return -1e30;  /* need at least ~1 effective sample */
+
+    /* Estimate parameters */
+    DistParams params;
+    df->estimate(data, weights, n, &params);
+
+    /* Check for NaN */
+    for (int q = 0; q < params.nparams; q++) {
+        if (!isfinite(params.p[q])) return -1e30;
+    }
+
+    /* Compute weighted log-likelihood */
+    double wll = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (weights[i] < 1e-10) continue;
+        double lp = df->logpdf ? df->logpdf(data[i], &params)
+                               : log(df->pdf(data[i], &params) + 1e-300);
+        wll += weights[i] * lp;
+    }
+
+    /* Penalize by number of free params (local BIC-like criterion) */
+    wll -= 0.5 * df->num_params * log(sw);
+
+    if (out_params) *out_params = params;
+    return wll;
+}
+
+/* Find best family for a component given its responsibility weights */
+static DistFamily best_family_for_component(const double* data, const double* weights,
+                                             size_t n, int all_positive,
+                                             DistParams* out_params)
+{
+    double best_wll = -1e30;
+    DistFamily best_fam = DIST_GAUSSIAN;
+    DistParams best_p = {{0,1,0,0}, 2};
+
+    /* Try real-valued families */
+    for (int f = 0; f < N_ADAPT_REAL; f++) {
+        DistParams p;
+        double wll = component_wll(data, weights, n, ADAPT_FAMILIES_REAL[f], &p);
+        if (wll > best_wll) { best_wll = wll; best_fam = ADAPT_FAMILIES_REAL[f]; best_p = p; }
+    }
+
+    /* Try positive-only families if data is all positive */
+    if (all_positive) {
+        for (int f = 0; f < N_ADAPT_POS; f++) {
+            DistParams p;
+            double wll = component_wll(data, weights, n, ADAPT_FAMILIES_POS[f], &p);
+            if (wll > best_wll) { best_wll = wll; best_fam = ADAPT_FAMILIES_POS[f]; best_p = p; }
+        }
+    }
+
+    if (out_params) *out_params = best_p;
+    return best_fam;
+}
+
+/* Bimodality test: Hartigan's dip statistic approximation */
+static double bimodality_coeff(const double* data, const double* weights, size_t n)
+{
+    double sw = 0, sm = 0;
+    for (size_t i = 0; i < n; i++) { sw += weights[i]; sm += weights[i]*data[i]; }
+    if (sw < 5) return 0;
+    double mu = sm / sw;
+    double m2 = 0, m3 = 0, m4 = 0;
+    for (size_t i = 0; i < n; i++) {
+        double d = data[i] - mu, w = weights[i];
+        m2 += w*d*d; m3 += w*d*d*d; m4 += w*d*d*d*d;
+    }
+    m2 /= sw; m3 /= sw; m4 /= sw;
+    if (m2 < 1e-10) return 0;
+    double gamma1_sq = (m3*m3) / (m2*m2*m2);
+    double gamma2 = m4 / (m2*m2) - 3;
+    /* BC = (gamma1^2 + 1) / (gamma2 + 3*(n-1)^2/((n-2)*(n-3))) */
+    double n_eff = sw;
+    double denom = gamma2 + 3.0*(n_eff-1)*(n_eff-1) / ((n_eff-2)*(n_eff-3));
+    if (denom < 0.1) denom = 0.1;
+    return (gamma1_sq + 1.0) / denom;
+}
+
+/* Kullback-Leibler divergence estimate between two components */
+static double component_kl_sym(const double* data, size_t n,
+                                DistFamily fam_a, const DistParams* pa,
+                                DistFamily fam_b, const DistParams* pb)
+{
+    const DistFunctions* dfa = GetDistFunctions(fam_a);
+    const DistFunctions* dfb = GetDistFunctions(fam_b);
+    if (!dfa || !dfb) return 1e30;
+
+    /* Monte Carlo KL using data points */
+    double kl_ab = 0, kl_ba = 0;
+    int cnt = 0;
+    for (size_t i = 0; i < n; i += (n > 1000 ? n/500 : 1)) {
+        double la = dfa->logpdf ? dfa->logpdf(data[i], pa) : log(dfa->pdf(data[i], pa)+1e-300);
+        double lb = dfb->logpdf ? dfb->logpdf(data[i], pb) : log(dfb->pdf(data[i], pb)+1e-300);
+        if (!isfinite(la) || !isfinite(lb)) continue;
+        kl_ab += la - lb;
+        kl_ba += lb - la;
+        cnt++;
+    }
+    if (cnt == 0) return 1e30;
+    kl_ab /= cnt; kl_ba /= cnt;
+    return 0.5 * (fabs(kl_ab) + fabs(kl_ba));  /* symmetric KL */
+}
+
+int UnmixAdaptive(const double* data, size_t n,
+                  int k_max, int maxiter, double rtole, int verbose,
+                  AdaptiveResult* result)
+{
+    if (!data || n == 0 || !result) return -1;
+    if (k_max <= 0) k_max = 10;
+    if (maxiter <= 0) maxiter = 300;
+
+    init_dist_table();
+
+    /* Check if all data is positive */
+    int all_positive = 1;
+    for (size_t i = 0; i < n; i++) {
+        if (data[i] <= 0) { all_positive = 0; break; }
+    }
+
+    /* Start with k=1, Gaussian */
+    int k = 1;
+    double* mix_w   = (double*)malloc(sizeof(double) * k_max);
+    DistParams* par  = (DistParams*)malloc(sizeof(DistParams) * k_max);
+    DistFamily* fams = (DistFamily*)malloc(sizeof(DistFamily) * k_max);
+
+    /* Initialize first component */
+    const DistFunctions* gauss = GetDistFunctions(DIST_GAUSSIAN);
+    gauss->init_params(data, n, 1, par);
+    mix_w[0] = 1.0;
+    fams[0] = DIST_GAUSSIAN;
+
+    double* resp = (double*)malloc(sizeof(double) * k_max * n);
+    double* wj   = (double*)malloc(sizeof(double) * n);
+
+    double best_bic = 1e30;
+    int best_k = 1;
+    double* best_mix_w  = (double*)malloc(sizeof(double) * k_max);
+    DistParams* best_par = (DistParams*)malloc(sizeof(DistParams) * k_max);
+    DistFamily* best_fams = (DistFamily*)malloc(sizeof(DistFamily) * k_max);
+    double best_ll = -1e30;
+
+    int outer_iter = 0;
+    int no_improve_count = 0;
+
+    while (outer_iter < 20 && no_improve_count < 3) {
+        outer_iter++;
+
+        /* ──── Inner EM loop: fix k, optimize parameters + family selection ──── */
+        double prev_ll = -1e30;
+        int family_reselect_interval = 5;  /* reselect families every N iters */
+        int inner_maxiter = maxiter;  /* cap inner loop */
+
+        for (int iter = 0; iter < inner_maxiter; iter++) {
+            /* E-step */
+            double ll = 0;
+            for (size_t i = 0; i < n; i++) {
+                double total = 0;
+                for (int j = 0; j < k; j++) {
+                    const DistFunctions* df = GetDistFunctions(fams[j]);
+                    double lp = df->logpdf ? df->logpdf(data[i], &par[j])
+                                           : log(df->pdf(data[i], &par[j]) + 1e-300);
+                    double p = mix_w[j] * exp(lp);
+                    if (p < PDF_FLOOR) p = PDF_FLOOR;
+                    resp[j * n + i] = p;
+                    total += p;
+                }
+                for (int j = 0; j < k; j++) resp[j * n + i] /= total;
+                ll += log(total);
+            }
+
+            if (verbose && (iter < 5 || iter % 20 == 0)) {
+                printf("  [adaptive k=%d] iter %d  LL=%.4f  delta=%.2e  families:",
+                       k, iter, ll, ll - prev_ll);
+                for (int j = 0; j < k; j++) printf(" %s", GetDistName(fams[j]));
+                printf("\n");
+            }
+
+            /* Convergence check */
+            if (iter > 1 && fabs(ll - prev_ll) < rtole) {
+                prev_ll = ll;
+                break;
+            }
+            prev_ll = ll;
+
+            /* M-step */
+            for (int j = 0; j < k; j++) {
+                double nj = 0;
+                for (size_t i = 0; i < n; i++) {
+                    wj[i] = resp[j * n + i];
+                    nj += wj[i];
+                }
+                mix_w[j] = nj / n;
+                if (mix_w[j] < 1e-10) mix_w[j] = 1e-10;
+
+                /* Family reselection at intervals */
+                if (iter % family_reselect_interval == 0) {
+                    /* Check if this component's data is all-positive
+                     * (based on responsibility-weighted minimum) */
+                    int comp_positive = 1;
+                    for (size_t i = 0; i < n; i++) {
+                        if (wj[i] > 0.01 && data[i] <= 0) { comp_positive = 0; break; }
+                    }
+                    DistParams new_p;
+                    DistFamily new_fam = best_family_for_component(
+                        data, wj, n, comp_positive, &new_p);
+                    fams[j] = new_fam;
+                    par[j] = new_p;
+                } else {
+                    /* Just re-estimate within current family */
+                    DistParams old_p = par[j];
+                    const DistFunctions* df = GetDistFunctions(fams[j]);
+                    df->estimate(data, wj, n, &par[j]);
+                    int any_nan = 0;
+                    for (int q = 0; q < par[j].nparams; q++)
+                        if (!isfinite(par[j].p[q])) { any_nan = 1; break; }
+                    if (any_nan) par[j] = old_p;
+                }
+            }
+
+            /* Renormalize */
+            double wsum = 0;
+            for (int j = 0; j < k; j++) wsum += mix_w[j];
+            for (int j = 0; j < k; j++) mix_w[j] /= wsum;
+        }
+
+        /* Compute BIC for current model */
+        int num_free = 0;
+        for (int j = 0; j < k; j++) {
+            const DistFunctions* df = GetDistFunctions(fams[j]);
+            num_free += df->num_params + 1;  /* params + mixing weight */
+        }
+        num_free -= 1;  /* weights sum to 1 */
+        double cur_bic = -2.0 * prev_ll + num_free * log((double)n);
+
+        if (verbose) {
+            printf("  [k=%d] LL=%.2f  BIC=%.2f  (best BIC=%.2f)\n",
+                   k, prev_ll, cur_bic, best_bic);
+        }
+
+        /* Track best */
+        if (cur_bic < best_bic - 1.0) {  /* require meaningful improvement */
+            best_bic = cur_bic;
+            best_k = k;
+            best_ll = prev_ll;
+            for (int j = 0; j < k; j++) {
+                best_mix_w[j] = mix_w[j];
+                best_par[j] = par[j];
+                best_fams[j] = fams[j];
+            }
+            no_improve_count = 0;
+        } else {
+            no_improve_count++;
+        }
+
+        if (k >= k_max) break;
+
+        /* ──── Split: find the component with highest bimodality, split it ──── */
+        double max_bc = 0;
+        int split_j = -1;
+        for (int j = 0; j < k; j++) {
+            for (size_t i = 0; i < n; i++) wj[i] = resp[j * n + i];
+            double bc = bimodality_coeff(data, wj, n);
+            if (bc > max_bc && mix_w[j] > 0.05) {
+                max_bc = bc;
+                split_j = j;
+            }
+        }
+
+        /* Also merge similar components */
+        int merge_a = -1, merge_b = -1;
+        double min_kl = 1e30;
+        for (int a = 0; a < k; a++) {
+            for (int b = a+1; b < k; b++) {
+                double kl = component_kl_sym(data, n, fams[a], &par[a], fams[b], &par[b]);
+                if (kl < min_kl) { min_kl = kl; merge_a = a; merge_b = b; }
+            }
+        }
+
+        /* Decide: split if BC is high enough, or just try adding a component */
+        if (k < k_max) {
+            /* Split the most bimodal component */
+            if (split_j < 0) split_j = 0;  /* default: split first */
+
+            if (verbose) {
+                printf("  Splitting component %d (BC=%.3f, %s)\n",
+                       split_j, max_bc, GetDistName(fams[split_j]));
+            }
+
+            /* Create new component by perturbing the split component */
+            double mu_j = par[split_j].p[0];
+            double sigma_j = (par[split_j].nparams >= 2) ? sqrt(fabs(par[split_j].p[1])) : 1.0;
+            if (sigma_j < 1e-6) sigma_j = 1.0;
+
+            /* New component: shifted right */
+            par[k] = par[split_j];
+            par[k].p[0] = mu_j + sigma_j * 0.5;
+            fams[k] = fams[split_j];
+
+            /* Original: shifted left */
+            par[split_j].p[0] = mu_j - sigma_j * 0.5;
+
+            /* Split the weight */
+            double w_orig = mix_w[split_j];
+            mix_w[split_j] = w_orig * 0.5;
+            mix_w[k] = w_orig * 0.5;
+
+            k++;
+        }
+
+        /* Merge if two components are very similar (KL < 0.1) */
+        if (k > 1 && min_kl < 0.1 && merge_a >= 0 && merge_b >= 0) {
+            if (verbose) {
+                printf("  Merging components %d (%s) and %d (%s), KL=%.4f\n",
+                       merge_a, GetDistName(fams[merge_a]),
+                       merge_b, GetDistName(fams[merge_b]), min_kl);
+            }
+            /* Merge b into a */
+            double wa = mix_w[merge_a], wb = mix_w[merge_b];
+            double wt = wa + wb;
+            /* Weighted average of params */
+            for (int q = 0; q < par[merge_a].nparams; q++) {
+                par[merge_a].p[q] = (wa * par[merge_a].p[q] + wb * par[merge_b].p[q]) / wt;
+            }
+            mix_w[merge_a] = wt;
+            /* Remove component b by shifting */
+            for (int j = merge_b; j < k-1; j++) {
+                par[j] = par[j+1];
+                fams[j] = fams[j+1];
+                mix_w[j] = mix_w[j+1];
+            }
+            k--;
+        }
+
+        /* Prune dead components (weight < 1%) */
+        for (int j = k-1; j >= 0; j--) {
+            if (mix_w[j] < 0.01 && k > 1) {
+                if (verbose) printf("  Pruning dead component %d (w=%.4f)\n", j, mix_w[j]);
+                for (int jj = j; jj < k-1; jj++) {
+                    par[jj] = par[jj+1]; fams[jj] = fams[jj+1]; mix_w[jj] = mix_w[jj+1];
+                }
+                k--;
+            }
+        }
+
+        /* Renormalize */
+        double wsum = 0;
+        for (int j = 0; j < k; j++) wsum += mix_w[j];
+        for (int j = 0; j < k; j++) mix_w[j] /= wsum;
+    }
+
+    /* Return best model found */
+    result->num_components = best_k;
+    result->loglikelihood = best_ll;
+    result->bic = best_bic;
+    result->iterations = outer_iter;
+    int num_free = 0;
+    for (int j = 0; j < best_k; j++) {
+        const DistFunctions* df = GetDistFunctions(best_fams[j]);
+        num_free += df->num_params + 1;
+    }
+    num_free -= 1;
+    result->aic = -2.0 * best_ll + 2.0 * num_free;
+
+    result->mixing_weights = (double*)malloc(sizeof(double) * best_k);
+    result->params = (DistParams*)malloc(sizeof(DistParams) * best_k);
+    result->families = (DistFamily*)malloc(sizeof(DistFamily) * best_k);
+    for (int j = 0; j < best_k; j++) {
+        result->mixing_weights[j] = best_mix_w[j];
+        result->params[j] = best_par[j];
+        result->families[j] = best_fams[j];
+    }
+
+    free(resp); free(wj); free(mix_w); free(par); free(fams);
+    free(best_mix_w); free(best_par); free(best_fams);
+
+    return 0;
+}
+
+void ReleaseAdaptiveResult(AdaptiveResult* r) {
+    if (!r) return;
+    if (r->mixing_weights) { free(r->mixing_weights); r->mixing_weights = NULL; }
+    if (r->params) { free(r->params); r->params = NULL; }
+    if (r->families) { free(r->families); r->families = NULL; }
+}
+
+
+/* ====================================================================
  * Cleanup
  * ==================================================================== */
 void ReleaseMixtureResult(MixtureResult* r) {

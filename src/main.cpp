@@ -46,6 +46,7 @@ struct emsettings{
     bool termcat = false;
     bool kmeans_init = false;
     bool autoselect = false;
+    bool adaptive = false;
     double rtole;
 };
 struct genesamfile{
@@ -171,6 +172,8 @@ struct emsettings parseargs(int argc, char ** argv){
             ems.kmeans_init = true;
         } else if (string(argv[i]) == "--auto" | string(argv[i]) == "--AUTO"){
             ems.autoselect = true;
+        } else if (string(argv[i]) == "--adaptive" | string(argv[i]) == "--ADAPTIVE"){
+            ems.adaptive = true;
         } else if (string(argv[i]) == "-d" | string(argv[i]) == "-D" | string(argv[i]) == "--DIST"){
             ems.distname = string(argv[i+1]);
         } else if (string(argv[i]) == "--kmax" | string(argv[i]) == "--KMAX"){
@@ -384,7 +387,7 @@ int main(int argc, char** argv)
      * --auto
      *    Tries all valid families x k_min..k_max, picks best by BIC
      * ================================================================ */
-    if (!ems.distname.empty() || ems.autoselect) {
+    if (!ems.distname.empty() || ems.autoselect || ems.adaptive) {
         if (umv.empty() && ems.valfilename.empty()) {
             /* Need a data file — try reading from -g/-e filename or reparse */
             cerr << "ERROR: Generic/auto mode requires data values (-g or -e input)." << endl;
@@ -399,7 +402,55 @@ int main(int argc, char** argv)
         int k_max = ems.kmax > 0 ? ems.kmax : ems.kmixt;
         if (k_max < k_min) k_max = k_min;
 
-        if (ems.autoselect) {
+        if (ems.adaptive) {
+            cout << "INFO: Adaptive mode — discovering k AND distribution families from data" << endl;
+
+            AdaptiveResult aResult;
+            int rc = UnmixAdaptive(umv.data(), umv.size(),
+                                    k_max, ems.maxitr, ems.rtole,
+                                    ems.verbose ? 1 : 0, &aResult);
+            if (rc == 0) {
+                cout << endl;
+                cout << "========================================" << endl;
+                cout << "  Adaptive Result: k=" << aResult.num_components << endl;
+                cout << "  LL  = " << aResult.loglikelihood << endl;
+                cout << "  BIC = " << aResult.bic << endl;
+                cout << "  AIC = " << aResult.aic << endl;
+                cout << "========================================" << endl;
+                cout << endl;
+
+                for (int j = 0; j < aResult.num_components; j++) {
+                    cout << "  Component " << j << ": "
+                         << GetDistName(aResult.families[j])
+                         << "  weight=" << aResult.mixing_weights[j];
+                    const DistFunctions* df = GetDistFunctions(aResult.families[j]);
+                    for (int p = 0; p < df->num_params; p++)
+                        cout << "  p" << p << "=" << aResult.params[j].p[p];
+                    cout << endl;
+                }
+
+                /* Write output file */
+                ofstream of(ems.ofilename);
+                of << "# GEMMULEM Adaptive Result" << endl;
+                of << "# k=" << aResult.num_components
+                   << " LL=" << aResult.loglikelihood
+                   << " BIC=" << aResult.bic << endl;
+                for (int j = 0; j < aResult.num_components; j++) {
+                    of << GetDistName(aResult.families[j])
+                       << "," << aResult.mixing_weights[j];
+                    const DistFunctions* df = GetDistFunctions(aResult.families[j]);
+                    for (int p = 0; p < df->num_params; p++)
+                        of << "," << aResult.params[j].p[p];
+                    of << endl;
+                }
+                of.close();
+                cout << "INFO: Output written to " << ems.ofilename << endl;
+            } else {
+                cerr << "ERROR: Adaptive EM failed with code " << rc << endl;
+            }
+            ReleaseAdaptiveResult(&aResult);
+
+        } else if (ems.autoselect) {
             cout << "INFO: Auto-selecting best distribution family and number of components" << endl;
             cout << "INFO: Testing k=" << k_min << " to k=" << k_max << endl;
 

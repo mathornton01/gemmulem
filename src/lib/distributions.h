@@ -150,6 +150,48 @@ int SelectBestMixture(const double* data, size_t n,
                       int maxiter, double rtole, int verbose,
                       ModelSelectResult* result);
 
+/* ====================================================================
+ * Adaptive Mixture Result (mixed-family, auto-k)
+ * ==================================================================== */
+typedef struct {
+    int num_components;
+    int iterations;
+    double loglikelihood;
+    double bic;
+    double aic;
+    double* mixing_weights;     /* [num_components] */
+    DistParams* params;         /* [num_components] */
+    DistFamily* families;       /* [num_components] — family PER component */
+} AdaptiveResult;
+
+/**
+ * Fully adaptive EM: discovers both the number of components (k)
+ * AND the distribution family for each component independently.
+ *
+ * Algorithm:
+ *   1. Start with k_init components (Gaussian)
+ *   2. E-step: standard responsibilities using each component's current PDF
+ *   3. M-step: for each component, try all valid families on its weighted
+ *      data, pick the one with best weighted log-likelihood
+ *   4. Split: if a component shows high kurtosis/bimodality, split it
+ *   5. Merge: if two components are too similar, merge them
+ *   6. Repeat until BIC stops improving
+ *
+ * @param data       Observed values
+ * @param n          Number of observations
+ * @param k_max      Maximum components to try (0 = auto, default 10)
+ * @param maxiter    Max EM iterations per round
+ * @param rtole      Convergence tolerance
+ * @param verbose    Print progress
+ * @param result     Output (caller must call ReleaseAdaptiveResult)
+ * @return 0 on success
+ */
+int UnmixAdaptive(const double* data, size_t n,
+                  int k_max, int maxiter, double rtole, int verbose,
+                  AdaptiveResult* result);
+
+void ReleaseAdaptiveResult(AdaptiveResult* result);
+
 /**
  * Release memory.
  */
