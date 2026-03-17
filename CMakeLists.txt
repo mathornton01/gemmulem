@@ -49,6 +49,11 @@ add_executable(test_spectral_online_mml Test/test_spectral_online_mml.c)
 target_include_directories(test_spectral_online_mml PRIVATE "${PROJECT_SOURCE_DIR}/src/lib")
 target_link_libraries(test_spectral_online_mml em m)
 
+add_executable(test_multivariate Test/test_multivariate.c)
+target_include_directories(test_multivariate PRIVATE "${PROJECT_SOURCE_DIR}/src/lib")
+target_link_libraries(test_multivariate em m)
+
 add_test(NAME adaptive_tests COMMAND test_adaptive)
 add_test(NAME spectral_online_mml_tests COMMAND test_spectral_online_mml)
+add_test(NAME multivariate_tests COMMAND test_multivariate)
 

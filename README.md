@@ -1,376 +1,219 @@
-# GeMMulEM (\[Ge\]neral \[M\]ixed \[Mul\]tinomial \[E\]xpectation \[M\]aximization) <div id="top"></div>
+# Gemmulem v2.0
 
-This version of the gemmulem program is intended to be very easy to install and use, and therefore only
-requires the GNU make and the CMake utility for its installation. 
+**The most comprehensive univariate mixture model library.** 35 distribution families, 5 automatic model selection methods, spectral initialization, online EM — all in pure C with zero dependencies.
 
-To compile this utility from its sources the only tools you will need in addition to make is gcc. 
-This utility can be compiled in linux, mac and Windows environment.  
-  
-   
-<!-- TABLE OF CONTENTS -->
-  <summary><b>Table of Contents</b></summary>
-  <ol>
-    <li>
-      <a href="#getting-started">Getting Started</a>
-      <ul>
-        <li><a href="#prerequisites">Prerequisites</a></li>
-        <li><a href="#installation">Installation</a></li>
-        <ul>
-          <li><a href="#linuxmac-environment">Linux/Mac environment</a></li>
-          <li><a href="#windows-environment">Windows environment</a></li>
-        </ul>
-      </ul>
-    </li>
-    <li><a href="#usage">Usage</a></li>
-    <ul>
-      <li><a href="#gemmulem">gemmulem application</a></li>
-      <li><a href="#cc-apis">C/C++ APIs</a></li>
-      <li><a href="#r-apis">R APIs</a></li>
-      <li><a href="#python-apis">Python APIs</a></li>
-    </ul>
-    <li><a href="#contact">Contact</a></li>
-  </ol>
+## Benchmark
 
-# Getting Started
+| n | Gemmulem | sklearn GMM | Speedup |
+|---:|---:|---:|---:|
+| 1,000 | 14ms | 71ms | **5.1×** |
+| 5,000 | 15ms | 45ms | **2.9×** |
+| 10,000 | 20ms | 87ms | **4.3×** |
+| 50,000 | 49ms | 124ms | **2.5×** |
+| 100,000 | 90ms | 166ms | **1.8×** |
 
-## Prerequisites
+## Feature Comparison
 
-### Linux/Mac environment  
-  C/C++ compiler(gcc, clang)  
-  CMake  
+| Feature | Gemmulem | sklearn | R mixtools | pomegranate |
+|---|:---:|:---:|:---:|:---:|
+| Distribution families | **35** | 1 | 3 | 5 |
+| Auto k-selection methods | **5** | 1 | 0 | 0 |
+| Spectral initialization | ✓ | ✗ | ✗ | ✗ |
+| Online/stochastic EM | ✓ | ✗ | ✗ | ✗ |
+| Nonparametric (KDE) | ✓ | ✗ | ✗ | ✗ |
+| Cross-family adaptive EM | ✓ | ✗ | ✗ | ✗ |
+| Pearson auto-type | ✓ | ✗ | ✗ | ✗ |
+| External dependencies | **none** | numpy | R core | PyTorch |
 
-### Windows environment  
-  Visual Studio Community 2017 or newer version (with `Desktop development with C++` workload)  
-  CMake  
-  or, Windows subsystem for linux  
-  Rtools(for building R package)  
-  python setuptools, build package(for building python package)
+## Distribution Families (35)
 
-<p align="right">(<a href="#top">back to top</a>)</p>
+**Real-valued (ℝ):** Gaussian, Student-t, Laplace, Cauchy, Logistic, Gumbel, Skew-Normal, Generalized Gaussian
 
-## Installation
+**Positive (ℝ⁺):** Exponential, Gamma, Log-Normal, Weibull, Inverse Gaussian, Rayleigh, Pareto, Chi-squared, F, Log-Logistic, Nakagami, Lévy, Gompertz, Burr XII, Half-Normal, Maxwell-Boltzmann
 
-### Linux/MAC environment
-1. Clone the GEMMULEM repo
+**Unit interval [0,1]:** Beta, Kumaraswamy, Triangular
+
+**Discrete:** Poisson, Binomial, Negative Binomial, Geometric, Zipf
+
+**Meta/Special:** Pearson (auto-selects type from moments), Uniform, KDE (nonparametric)
+
+## Model Selection Methods
+
+| Method | Flag | Description |
+|---|---|---|
+| **BIC** | `--kmethod bic` | Bayesian Information Criterion (default) — conservative |
+| **AIC** | `--kmethod aic` | Akaike — lighter penalty, finds more components |
+| **ICL** | `--kmethod icl` | Integrated Classification Likelihood — penalizes overlap |
+| **VBEM** | `--kmethod vbem` | Variational Bayes EM — genuine M-step over k |
+| **MML** | `--kmethod mml` | Minimum Message Length (Wallace-Freeman) |
+
+## Quick Start
+
+### Install
+
 ```bash
 git clone https://github.com/mathornton01/gemmulem.git
+cd gemmulem && mkdir build && cd build
+cmake .. && cmake --build .
 ```
 
-2. Create a build directory in the project and change to it, and run cmake
+Requires only a C/C++ compiler and CMake. No LAPACK, no BLAS, no external libraries.
+
+### Basic Usage
+
 ```bash
-cd gemmulem
-mkdir build
-cd build
-cmake ../
+# Fit 2-component Gaussian mixture
+gemmulem -g data.txt -d Gaussian -k 2
+
+# Fit Student-t mixture with 3 components
+gemmulem -g data.txt -d StudentT -k 3
+
+# Auto-detect number of components (BIC-driven)
+gemmulem -g data.txt --adaptive --kmax 8
+
+# Auto-detect with VBEM (Bayesian)
+gemmulem -g data.txt --adaptive --kmethod vbem --kmax 10
+
+# Online EM for large datasets
+gemmulem -g big_data.txt -d Gaussian -k 4 --online --batch-size 512
+
+# Verbose output
+gemmulem -g data.txt -d Gaussian -k 2 -v
 ```
 
-3. Run build command
+### Specify Distribution Family
+
+Use `-d` / `--dist` with any family name:
+```
+Gaussian, StudentT, Laplace, Cauchy, Logistic, Gumbel, SkewNormal, GenGaussian,
+Exponential, Gamma, LogNormal, Weibull, InvGaussian, Rayleigh, Pareto, ChiSquared,
+F, LogLogistic, Nakagami, Levy, Gompertz, BurrXII, HalfNormal, MaxwellBoltzmann,
+Beta, Kumaraswamy, Triangular, Poisson, Binomial, NegBinomial, Geometric, Zipf,
+Pearson, Uniform, KDE
+```
+
+### Auto Mode
+
+Exhaustive search over all compatible families × k values:
 ```bash
-cmake --build . --config Release
+gemmulem -g data.txt --auto --kmax 5
 ```
 
-4. Install GEMMULEM application and library
+### Adaptive Mode
+
+Per-component family selection with automatic k:
 ```bash
-sudo cmake --install . --config Release
+gemmulem -g data.txt --adaptive --kmethod bic --kmax 8
 ```
-`GEMMULEM` will be installed in `/usr/local/lib` directory by default. Use `--prefix` option to install a different directory.
+
+Each component independently selects its best distribution family. Discovers both the number of components and the shape of each.
+
+## EM Modes
+
+### Standard EM
+Full-data E-step and M-step each iteration. Deterministic, guaranteed monotone LL increase.
+
+### Online/Stochastic EM
+Mini-batch processing with Cappé & Moulines (2009) step-size schedule `η_t = (t+τ)^(-κ)`. Scales to millions of data points. Within 0.002% log-likelihood of standard EM on benchmark data.
+
 ```bash
-cmake --install . --config Release --prefix=/home/user/other
+gemmulem -g data.txt -d Gaussian -k 3 --online --batch-size 256
 ```
 
-5. (Optional) Build and install R package  
-Change to extension/R directory in the project.
+### Spectral Initialization
+Gap-detection on sorted data provides provably good starting parameters for well-separated components. On synthetic N(−6,0.8) + N(6,0.8), recovers means of −6.00 and 6.02 *before EM even runs*.
+
+## C/C++ API
+
+```c
+#include "distributions.h"
+
+// Fixed family, fixed k
+MixtureResult result;
+UnmixGeneric(data, n, DIST_GAUSSIAN, k, 300, 1e-5, 0, &result);
+
+// Adaptive: auto k + auto family
+AdaptiveResult adaptive;
+UnmixAdaptiveEx(data, n, k_max, 300, 1e-5, 0, KMETHOD_BIC, &adaptive);
+
+// Online EM
+MixtureResult online;
+UnmixOnline(data, n, DIST_GAUSSIAN, k, 500, 1e-5, 256, 0, &online);
+
+// Spectral initialization
+double means[k], weights[k];
+SpectralInit(data, n, k, means, weights);
+
+// Cleanup
+ReleaseMixtureResult(&result);
+ReleaseAdaptiveResult(&adaptive);
+```
+
+## Legacy Modes
+
+### Coarse Multinomial EM
+The original Gemmulem mode for compatibility-pattern data:
 ```bash
-cd extension/R
-R CMD INSTALL rgemmulem
+gemmulem -i patterns.tsv -o output.txt
 ```
 
-6. (Optional) Build and install python package  
-Change to extension/python directory in the project.
-```bash
-cd extension/python
-pip install --upgrade build
-./build.sh
-```
-
-<p align="right">(<a href="#top">back to top</a>)</p>
-
-
-### Windows environment (Using MSVC)
-1. Clone the GEMMULEM repo
-```bash
-git clone https://github.com/mathornton01/gemmulem.git
-```
-
-2. Create a build directory in the project and change to it, and run cmake
-```bash
-cd gemmulem
-mkdir build
-cd build
-cmake ../
-```
-
-3. Run build command
-```bash
-cmake --build . --config Release
-```
-
-4. Install GEMMULEM application and library. Run console as administrator
-```bash
-cmake --install . --config Release
-```
-GEMMULEM will be installed in `C:\Program Files (x86)\GEMMULEM` directory by default. Use `--prefix` option to install a different directory.
-```bash
-cmake --install . --config Release --prefix "D:\OTHER\FOLDER"
-```
-
-5. (Optional) Build and install R package  
-Change to extension/R directory in the project. We assume `R.exe` is in the `PATH` environment.
-```bash
-cd extension/R
-R CMD INSTALL rgemmulem
-```
-
-6. (Optional) Build and install python package  
-Change to extension/python directory in the project.
-```bash
-cd extension/python
-pip install --upgrade build
-build.bat
-```
-
-<p align="right">(<a href="#top">back to top</a>)</p>
-
-# Usage  
-## gemmulem
-```
-gemmulem [options]
-```
-### options
-- `-i/-I/--IFILE <input filename>`  
-Specify input file for coarse multinomial mode. The file contains compatibility patterns and counts. Each columns are seperated by comma(,). First column is a compatiblity pattern and second is a count.  
-_Both -g/e and -i may not be simultaneously specified_  
-Example file with 4 category class  
-
-  ``` 
-  1011,40   
-  1100,45  
-  0010,30
-  ```
-
-- `-g/-G/--GFILE <input filename>`  
-Specify input file for Gaussian mixture deconvolution mode. The file contains a list of values comming from a mixture of univariate gaussians.  
-_Both -g/e and -i may not be simultaneously specified_  
-
-  ```
-  -2.64566122335398
-  -24.9939621808671
-  -5.25417008181354
-  27.4150444391751
-  -2.23999093704485
-  -0.644893131269661
-  16.9420712792649
-  17.359643633111
-  ```
-
-- `-e/-E/--EFILE <input filename>`  
-Specify input file for Exponential mixture deconvolution mode. The file contains a list of values comming from a mixture of univariate exponentials.  
-_Both -g/e and -i may not be simultaneously specified._  
-
-  ```
-  -5.01966537271658
-  -7.4061877009785
-  -2.15413929205554
-  -17.0618868673418
-  0.225835191938541
-  -16.6095956294893
-  -18.4864630074395
-  ```
-
-- `-o/-O/--OFILE <output filename>`  
-Specify output file. By default, the timestamp is used as the file name.  
-
-- `-r/-R/--RTOLE <relative tolerance>`  
-EM Stopping Criteria.  
-Default: `0.00001`  
-
-- `-v/-V/--VERBO`  
-Display of status and info messages.  
-
-- `-k/-K/--KMIXT <value>`  
-Number of mixture distribution. Valid only with `-e/-g` option.  
-Default: 3  
-
-- `-t/-T/--TERMI`  
-Show results in the terminal.  
-
-- `-c/-C/--CSEED <value>`  
-Seed for random number generator.
-
-- `-m/-M/--MAXIT <value>`  
-Maximum number of EM iteration.  
-Default: 1000  
-
-
-### example
-Run coarse multinomial mode and write results to `abn.txt` file.  
-```
-gemmulem -i sim.tsv -o abn.txt
-```
-
-<p align="right">(<a href="#top">back to top</a>)</p>
-
-
-## C/C++ APIs
-To use gemmulem library, include `EM.h` file to your code and link library with option `-lem`. If you installed gemmulem library in a location other than the default directory, add `-I 'installed directory'/include` and `-L 'installed directory'/lib` options to compiler option.  
-
-- ExpectationMaximization
-  ```C
-  int ExpectationMaximization(
-        const char* CompatMatrixPtr, 
-        size_t NumRows, 
-        size_t NumCols, 
-        const int* CountPtr, 
-        size_t NumCount, 
-        EMResult_t* ResultPtr, 
-        EMConfig_t* ConfigPtr
-        );
-  ```
-  `CompatMatrixPtr` is a pointer to compatibility matrix. Each row in the matrix is concatenated into a single row so that the pointer points to the single array.  
-  For example, there are 3 values with 4 classes,  
-  ```
-  0100,40
-  1001,20
-  0101,10
-  ```
-  `CompatMatrixPtr` is an array of `'010010010101'`.  
-  
-  `CountPtr` is an array of values.  
-  
-  `ResultPtr` is a pointer to store result. Caller function must provide a valid address of memory, and must call `ReleaseEMResult` function to release a memory allocated in `ExpectationMaximization`.  
-
-  
-- UnmixGaussians
-  ```C
-  int UnmixGaussians(
-        const double* ValuePtr,
-        size_t Size,
-        int NumGaussians,
-        EMResultGaussian_t* ResultPtr,
-        EMConfig_t* ConfigPtr
-        );
-  ```  
-  `ResultPtr` is a pointer to store result. Caller function must provide a valid address of memory, and must call `ReleaseEMResultGaussian` function to release a memory allocated in `UnmixGaussians`.  
-  
-
-- UnmixExponential
-  ```C
-  int UnmixExponentials(
-        const double* ValuePtr,
-        size_t Size,
-        int NumExponentials,
-        EMResultExponential_t* ResultPtr,
-        EMConfig_t* ConfigPtr
-        );
-  ```
-  `ResultPtr` is a pointer to store result. Caller function must provide a valid address of memory, and must call `ReleaseEMResultExponential` function to release a memory allocated in `UnmixExponential`.  
-  
-<p align="right">(<a href="#top">back to top</a>)</p>
-
-## R APIs
-
+### R Extension
 ```R
 library(rgemmulem)
-```
-rgemmulem package includes demo code.
-```R
-demo(rgemmulem_test1) # demo code for expectationmaximiazation
-demo(rgemmulem_test2) # demo code for unmixgaussians
-demo(rgemmulem_test3) # demo code for unmixexponentials
+rgemmulem_unmixgaussians(values, num_dist)
 ```
 
-- rgemmulem_expectationmaximization  
-  ```R
-  rgemmulem_expectationmaximization(compats, counts)
-  ```
-  `compats` is a vector of compatibility pattern strings.  
-  `count` is a vector of integer.
-
-  Returns double vector which is proportion of counts for each class.
-
-- rgemmulem_unmixgaussians
-  ```R
-  rgemmulem_unmixgaussians(values, num_dist)
-  ```
-  `values` is a vector of values.  
-
-  Returns parameters of gaussian distribution.  
- 
-  > [ $\hat{\mu}_1$, $\hat{\mu}_2$, ..., $\hat{\mu}_N$, $\hat{\sigma}^2_1$, $\hat{\sigma}^2_2$, ..., $\hat{\sigma}^2_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$] 
-
-- rgemmulem_unmixexponentails
-  ```R
-  rgemmulem_unmixexponentails(values, num_dist)
-  ```
-
-  Returns parameters of exponential distribution.  
-
-  > [ $\hat{\theta}_1$, $\hat{\theta}_2$, ..., $\hat{\theta}_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$]  
-
-<p align="right">(<a href="#top">back to top</a>)</p>
-
-## Python APIs
+### Python Extension
 ```python
 import pygemmulem
+pygemmulem.unmixgaussians(values, num_distribution)
 ```
 
-- expectationmaximization
-  ```python
-  pygemmulem.expectationmaximization(compats, counts, verbose=False, maxiter=1000, rtole=0.00001)
-  ```
-  `compats` is a list of compatibility pattern strings.  
-  `counts` is a list of count values.
-  
-  Returns proportion of counts for each class.
+## Options Reference
 
-- unmixgaussians
-  ```python
-  pygemmulem.unmixgaussians(values, num_distribution, verbose=False, maxiter=1000, rtole=0.00001)
-  ```
-  `values` is a list or array of values. When you pass an array object, the item of the array must be a double('d') type.
-  ```python
-    import array
+| Flag | Description | Default |
+|---|---|---|
+| `-g FILE` | Input data file (one value per line) | — |
+| `-i FILE` | Compatibility matrix file | — |
+| `-o FILE` | Output file | timestamp |
+| `-d FAMILY` | Distribution family | Gaussian |
+| `-k N` | Number of components | 3 |
+| `--kmax N` | Max components for adaptive/auto | 8 |
+| `-r TOL` | Convergence tolerance | 0.00001 |
+| `-m N` | Max iterations | 1000 |
+| `-c SEED` | Random seed | — |
+| `-v` | Verbose output | off |
+| `-t` | Show results in terminal | off |
+| `--auto` | Exhaustive family × k search | off |
+| `--adaptive` | Adaptive per-component EM | off |
+| `--kmethod M` | k-selection: bic/aic/icl/vbem/mml | bic |
+| `--online` | Stochastic/online EM | off |
+| `--batch-size N` | Mini-batch size for online EM | n/4 |
 
-    values = array.array('d', [0, 1, 3, 4, ...])
-  ```
-  
-  Returns parameters of gaussian distribution.  
+## Building & Testing
 
-  > [ $\hat{\mu}_1$, $\hat{\mu}_2$, ..., $\hat{\mu}_N$, $\hat{\sigma}^2_1$, $\hat{\sigma}^2_2$, ..., $\hat{\sigma}^2_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$]  
-    
+```bash
+mkdir build && cd build
+cmake .. && cmake --build .
+ctest --output-on-failure
+```
 
-- unmixexponentials
-  ```python
-  pygemmulem.unmixexponentials(values, num_distribution, verbose=False, maxiter=1000, rtole=0.00001)
-  ```
-  `values` is a list or array of values. When you pass an array object, the item of the array must be a double('d') type.
-  ```python
-    import array
+5 test suites: unit_tests, distribution_tests, pearson_tests, adaptive_tests, spectral_online_mml_tests.
 
-    values = array.array('d', [0, 1, 3, 4, ...])
-  ```
-  
-  Returns parameters of exponential distribution.  
+## License
 
-  > [ $\hat{\theta}_1$, $\hat{\theta}_2$, ..., $\hat{\theta}_N$, $\hat{\pi}_1$, $\hat{\pi}_2$, ..., $\hat{\pi}_N$]  
+GPL v3
 
-<p align="right">(<a href="#top">back to top</a>)</p>
- 
+## Contact
 
-# Contact  
-- Micah Thornton (Micah.Thornton@UTSouthwestern.edu)
-- Chanhee Park (Chanhee.Park@UTSouthwestern.edu)
+- Micah Thornton — Micah.Thornton@UTSouthwestern.edu
+- Chanhee Park — Chanhee.Park@UTSouthwestern.edu
 
-<p align="right">(<a href="#top">back to top</a>)</p>
+## Citation
 
-
+If you use Gemmulem in your research, please cite:
+```
+Thornton, M. & Park, C. (2026). Gemmulem: General Mixed-Family Expectation
+Maximization with Adaptive Model Selection. University of Texas Southwestern
+Medical Center.
+```

@@ -3,7 +3,8 @@ add_library(em
         vect.c
         EM.c
         distributions.c
-        pearson.c)
+        pearson.c
+        multivariate.c)
 
 set_property(TARGET em PROPERTY POSITION_INDEPENDENT_CODE ON)
 
@@ -11,5 +12,5 @@ set_property(TARGET em PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 # install target
 install(TARGETS em DESTINATION lib)
-install(FILES EM.h distributions.h pearson.h DESTINATION include)
+install(FILES EM.h distributions.h pearson.h multivariate.h DESTINATION include)
 

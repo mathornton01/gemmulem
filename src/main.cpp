@@ -29,6 +29,7 @@
 
 #include "EM.h"
 #include "distributions.h"
+#include "multivariate.h"
 
 using namespace std;
 
@@ -49,6 +50,9 @@ struct emsettings{
     bool adaptive = false;
     bool online = false;
     int batch_size = 0;
+    bool multivariate = false;
+    int mv_dim = 2;
+    CovType cov_type = COV_FULL;
     KMethod kmethod = KMETHOD_BIC;
     double rtole;
 };
@@ -193,6 +197,15 @@ struct emsettings parseargs(int argc, char ** argv){
             ems.distname = string(argv[i+1]);
         } else if (string(argv[i]) == "--kmax" | string(argv[i]) == "--KMAX"){
             kmax = stoi(string(argv[i+1]));
+        } else if (string(argv[i]) == "--mv" || string(argv[i]) == "--multivariate"){
+            ems.multivariate = true;
+        } else if (string(argv[i]) == "--dim"){
+            ems.mv_dim = stoi(string(argv[i+1]));
+        } else if (string(argv[i]) == "--cov"){
+            string ct = string(argv[i+1]);
+            if (ct == "full") ems.cov_type = COV_FULL;
+            else if (ct == "diagonal" || ct == "diag") ems.cov_type = COV_DIAGONAL;
+            else if (ct == "spherical" || ct == "sph") ems.cov_type = COV_SPHERICAL;
         }
     }
     if (infile == "" && sfile == "" && gfile == "" && efile == ""){
@@ -402,6 +415,79 @@ int main(int argc, char** argv)
      * --auto
      *    Tries all valid families x k_min..k_max, picks best by BIC
      * ================================================================ */
+    /* ════════════════════════════════════════════════════════════════
+     * MULTIVARIATE GAUSSIAN MIXTURE
+     * ════════════════════════════════════════════════════════════════ */
+    if (ems.multivariate) {
+        string datafile = ems.valfilename;
+        if (datafile.empty()) {
+            cerr << "ERROR: Multivariate mode requires -g <file> (row-major, space/comma-separated)" << endl;
+            return 1;
+        }
+        /* Read n×d matrix: each line is one observation with d space/comma-separated values */
+        vector<double> flat;
+        int d_detected = -1;
+        ifstream mvf(datafile);
+        string line;
+        size_t n_mv = 0;
+        while (getline(mvf, line)) {
+            if (line.empty() || line[0] == '#') continue;
+            vector<double> row;
+            istringstream iss(line);
+            string tok;
+            while (getline(iss, tok, line.find(',') != string::npos ? ',' : ' ')) {
+                if (!tok.empty()) {
+                    try { row.push_back(stod(tok)); } catch (...) {}
+                }
+            }
+            if (row.empty()) continue;
+            if (d_detected < 0) d_detected = (int)row.size();
+            if ((int)row.size() != d_detected) continue;
+            for (double v : row) flat.push_back(v);
+            n_mv++;
+        }
+        if (ems.mv_dim > 1) d_detected = ems.mv_dim;
+        if (n_mv == 0 || d_detected <= 0) {
+            cerr << "ERROR: No valid multivariate data found in " << datafile << endl;
+            return 1;
+        }
+        cout << "INFO: Multivariate Gaussian mixture — n=" << n_mv
+             << " d=" << d_detected << " k=" << ems.kmixt
+             << " cov=" << (ems.cov_type == COV_FULL ? "full" :
+                            ems.cov_type == COV_DIAGONAL ? "diagonal" : "spherical") << endl;
+
+        MVMixtureResult mv_result;
+        int rc = UnmixMVGaussian(flat.data(), n_mv, d_detected, ems.kmixt,
+                                 ems.cov_type, ems.maxitr, ems.rtole,
+                                 ems.verbose ? 1 : 0, &mv_result);
+        if (rc == 0) {
+            cout << "INFO: Converged in " << mv_result.iterations << " iterations" << endl;
+            cout << "INFO: LL=" << mv_result.loglikelihood
+                 << "  BIC=" << mv_result.bic
+                 << "  AIC=" << mv_result.aic << endl << endl;
+            for (int j = 0; j < mv_result.num_components; j++) {
+                cout << "Component " << j << ": weight=" << mv_result.mixing_weights[j] << endl;
+                cout << "  mean: [";
+                for (int dd = 0; dd < d_detected; dd++)
+                    cout << (dd ? ", " : "") << mv_result.components[j].mean[dd];
+                cout << "]" << endl;
+                if (ems.verbose) {
+                    cout << "  cov:" << endl;
+                    for (int a = 0; a < d_detected; a++) {
+                        cout << "    [";
+                        for (int b = 0; b < d_detected; b++)
+                            cout << (b ? ", " : "") << mv_result.components[j].cov[a*d_detected+b];
+                        cout << "]" << endl;
+                    }
+                }
+            }
+        } else {
+            cerr << "ERROR: Multivariate EM failed (rc=" << rc << ")" << endl;
+        }
+        ReleaseMVMixtureResult(&mv_result);
+        return rc;
+    }
+
     if (!ems.distname.empty() || ems.autoselect || ems.adaptive) {
         if (umv.empty() && ems.valfilename.empty()) {
             /* Need a data file — try reading from -g/-e filename or reparse */

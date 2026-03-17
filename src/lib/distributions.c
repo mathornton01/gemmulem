@@ -148,27 +148,82 @@ static int poisson_valid(double x) { return x >= 0; }
  * GAMMA: params = {shape (alpha), rate (beta)}
  *   mean = alpha/beta, var = alpha/beta^2
  * ==================================================================== */
-static double gamma_pdf(double x, const DistParams* p) {
-    double a = p->p[0], b = p->p[1];
-    if (x <= 0 || a <= 0 || b <= 0) return 0;
-    return exp(a*log(b) + (a-1)*log(x) - b*x - lgamma(a));
+/* Gamma: p[0]=alpha, p[1]=beta, p[2]=cached lgamma(alpha) (set in estimate/init) */
+static void gamma_cache(DistParams* p) {
+    if (p->nparams >= 3 && p->p[2] == p->p[2]) return;  /* already cached */
+    p->p[2] = lgamma(p->p[0]);
+    if (p->nparams < 3) p->nparams = 3;
 }
 static double gamma_logpdf(double x, const DistParams* p) {
     double a = p->p[0], b = p->p[1];
     if (x <= 0 || a <= 0 || b <= 0) return -1e30;
-    return a*log(b) + (a-1)*log(x) - b*x - lgamma(a);
+    /* Use cached lgamma if available (p[2]), else compute on the fly */
+    double lga = (p->nparams >= 3) ? p->p[2] : lgamma(a);
+    return a*log(b) + (a-1)*log(x) - b*x - lga;
 }
+static double gamma_pdf(double x, const DistParams* p) {
+    double lp = gamma_logpdf(x, p);
+    return lp > -700 ? exp(lp) : 0;
+}
+/* digamma approximation (Bernardo 1976, accurate to ~1e-8) */
+static double digamma_approx(double x) {
+    if (x < 6) {
+        /* Recurrence: digamma(x) = digamma(x+1) - 1/x */
+        return digamma_approx(x + 1) - 1.0 / x;
+    }
+    double r = log(x) - 1.0/(2*x);
+    r -= 1.0/(12*x*x) - 1.0/(120*x*x*x*x) + 1.0/(252*x*x*x*x*x*x);
+    return r;
+}
+/* trigamma (derivative of digamma) */
+static double trigamma_approx(double x) {
+    if (x < 6) return trigamma_approx(x + 1) + 1.0/(x*x);
+    return 1.0/x + 1.0/(2*x*x) + 1.0/(6*x*x*x) - 1.0/(30*x*x*x*x*x);
+}
+
 static void gamma_estimate(const double* x, const double* w, size_t n, DistParams* out) {
     double mu = wt_mean(x, w, n);
     double var = wt_var(x, w, n, mu);
     if (mu < 1e-10) mu = 1e-10;
     if (var < 1e-10) var = 1e-10;
-    /* Method of moments: alpha = mu^2/var, beta = mu/var */
-    double alpha = mu*mu / var;
-    double beta = mu / var;
+
+    /* Weighted log-mean: E[log X] */
+    double sw = 0, logmean = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (x[i] > 0) {
+            double wi = (w && w[i] > 0) ? w[i] : 1.0;
+            logmean += wi * log(x[i]);
+            sw += wi;
+        }
+    }
+    logmean /= (sw > 0 ? sw : 1);
+
+    double log_mean = log(mu);
+    double s = log_mean - logmean;  /* MLE sufficient statistic */
+
+    /* MoM starting point */
+    double alpha = mu * mu / var;
+    if (alpha < 0.1) alpha = 0.1;
+
+    /* Newton's method for MLE of alpha (Choi & Wette 1969 / Minka 2002) */
+    if (s > 0) {
+        for (int it = 0; it < 10; it++) {
+            double da = (log(alpha) - digamma_approx(alpha) - s);
+            double dda = 1.0/alpha - trigamma_approx(alpha);
+            double step = da / dda;
+            double alpha_new = alpha - step;
+            if (alpha_new <= 0) alpha_new = alpha * 0.5;
+            if (fabs(alpha_new - alpha) < 1e-8 * alpha) { alpha = alpha_new; break; }
+            alpha = alpha_new;
+        }
+    }
+
+    double beta = alpha / mu;
     if (alpha < 0.01) alpha = 0.01;
     if (beta < 0.01) beta = 0.01;
-    out->p[0] = alpha; out->p[1] = beta; out->nparams = 2;
+    out->p[0] = alpha; out->p[1] = beta;
+    out->p[2] = lgamma(alpha);  /* cache lgamma */
+    out->nparams = 3;
 }
 static void gamma_init(const double* x, size_t n, int k, DistParams* out) {
     /* Sort a sample to get quantile-based component initialization.
@@ -195,7 +250,9 @@ static void gamma_init(const double* x, size_t n, int k, DistParams* out) {
         if (lv < lm*0.01) lv = lm*0.1;  /* minimum CV of 31% */
         double a = lm*lm/lv; if (a < 0.1) a = 0.1;
         double b = lm/lv;    if (b < 0.01) b = 0.01;
-        out[j].p[0] = a; out[j].p[1] = b; out[j].nparams = 2;
+        out[j].p[0] = a; out[j].p[1] = b;
+        out[j].p[2] = lgamma(a);  /* cache lgamma */
+        out[j].nparams = 3;
     }
     free(s);
 }
@@ -1358,6 +1415,33 @@ int UnmixGeneric(const double* data, size_t n, DistFamily family, int k,
     double prev_ll = -1e30;
     int iter;
 
+    /* SQUAREM acceleration: pack all parameters into a flat vector for extrapolation.
+     * Layout: [w_0..w_{k-1}, p_0[0]..p_0[nparams-1], p_1[0]..., ...] */
+    int nparams_per = df->num_params;
+    int ntheta = k + k * nparams_per;  /* weights + all params */
+    double* theta0 = (double*)malloc(sizeof(double) * ntheta);
+    double* theta1 = (double*)malloc(sizeof(double) * ntheta);
+    double* theta2 = (double*)malloc(sizeof(double) * ntheta);
+
+    /* Helper to pack current state into theta */
+    #define PACK_THETA(th) do { \
+        for (int _j = 0; _j < k; _j++) (th)[_j] = result->mixing_weights[_j]; \
+        for (int _j = 0; _j < k; _j++) \
+            for (int _q = 0; _q < nparams_per; _q++) \
+                (th)[k + _j*nparams_per + _q] = result->params[_j].p[_q]; \
+    } while(0)
+    #define UNPACK_THETA(th) do { \
+        double _wsum = 0; \
+        for (int _j = 0; _j < k; _j++) { \
+            result->mixing_weights[_j] = (th)[_j] > 1e-10 ? (th)[_j] : 1e-10; \
+            _wsum += result->mixing_weights[_j]; } \
+        for (int _j = 0; _j < k; _j++) result->mixing_weights[_j] /= _wsum; \
+        for (int _j = 0; _j < k; _j++) \
+            for (int _q = 0; _q < nparams_per; _q++) { \
+                double _v = (th)[k + _j*nparams_per + _q]; \
+                if (isfinite(_v)) result->params[_j].p[_q] = _v; } \
+    } while(0)
+
     for (iter = 0; iter < maxiter; iter++) {
         /* ---- E-step: compute responsibilities ---- */
         double ll = 0.0;
@@ -1420,7 +1504,93 @@ int UnmixGeneric(const double* data, size_t n, DistFamily family, int k,
         double wsum = 0;
         for (int j = 0; j < k; j++) wsum += result->mixing_weights[j];
         for (int j = 0; j < k; j++) result->mixing_weights[j] /= wsum;
+
+        /* ---- SQUAREM acceleration (Varadhan & Roland 2008) every 3 iters ---- */
+        /* Only apply when convergence is slow (delta decaying geometrically) */
+        if (iter >= 4 && (iter % 3) == 0 && fabs(ll - prev_ll) < 10.0) {
+            /* θ0 = params before this M-step; θ1 = params after first M-step;
+             * θ2 = params after second M-step from θ1 */
+            PACK_THETA(theta0);  /* current = after first M-step */
+
+            /* Second EM step from current position */
+            {
+                /* E-step */
+                for (size_t i = 0; i < n; i++) {
+                    double tot = 0;
+                    for (int j = 0; j < k; j++) {
+                        double p = df->logpdf ?
+                            result->mixing_weights[j] * exp(df->logpdf(data[i], &result->params[j])) :
+                            result->mixing_weights[j] * df->pdf(data[i], &result->params[j]);
+                        if (p < PDF_FLOOR) p = PDF_FLOOR;
+                        resp[j*n+i] = p; tot += p;
+                    }
+                    for (int j = 0; j < k; j++) resp[j*n+i] /= tot;
+                }
+                /* M-step */
+                for (int j = 0; j < k; j++) {
+                    double nj = 0;
+                    for (size_t i = 0; i < n; i++) { weights_j[i] = resp[j*n+i]; nj += weights_j[i]; }
+                    result->mixing_weights[j] = nj / n > 1e-10 ? nj / n : 1e-10;
+                    DistParams tmp = result->params[j];
+                    df->estimate(data, weights_j, n, &result->params[j]);
+                    for (int q = 0; q < result->params[j].nparams; q++)
+                        if (!isfinite(result->params[j].p[q])) result->params[j].p[q] = tmp.p[q];
+                }
+                double ws2 = 0;
+                for (int j = 0; j < k; j++) ws2 += result->mixing_weights[j];
+                for (int j = 0; j < k; j++) result->mixing_weights[j] /= ws2;
+            }
+            PACK_THETA(theta2);  /* after second M-step */
+
+            /* Compute step length r = ||θ2 - θ0|| / ||θ1 - θ0||²
+             * where θ1 was saved before this block — use theta0 as θ1 approx
+             * Simplified SQUAREM-2 (Varadhan 2008 Eq 2): extrapolate */
+            double r_num = 0, r_den = 0;
+            for (int q = 0; q < ntheta; q++) {
+                double d = theta2[q] - theta0[q];    /* step after 2 EM steps */
+                r_num += d * d;
+            }
+            /* Step size α = -1 / sqrt(||step||) clamped to [-1, -32] */
+            double alpha_sq = r_num > 1e-30 ? -1.0 / sqrt(r_num) : -1.0;
+            if (alpha_sq > -1.0) alpha_sq = -1.0;
+            if (alpha_sq < -32.0) alpha_sq = -32.0;
+
+            /* Extrapolated θ* = θ0 - 2α*(θ2-θ0) + α²*(θ2-2*θ1+θ0)
+             * Simplified: θ* = θ0 + 2*(θ2-θ0) for step ~2x */
+            /* Use θ* = θ0 + (1 - 2*alpha_sq) * (θ2 - θ0)  */
+            double step_mult = 1.0 - 2.0 * alpha_sq;  /* >1 since alpha_sq<-1 */
+            if (step_mult > 10.0) step_mult = 10.0;    /* cap extrapolation */
+
+            for (int q = 0; q < ntheta; q++)
+                theta1[q] = theta0[q] + step_mult * (theta2[q] - theta0[q]);
+
+            /* Unpack and verify monotone (if extrapolation decreases LL, revert) */
+            UNPACK_THETA(theta1);
+
+            /* Verify LL hasn't decreased */
+            double ll_check = 0;
+            for (size_t i = 0; i < n; i++) {
+                double tot = 0;
+                for (int j = 0; j < k; j++) {
+                    double p = df->logpdf ?
+                        result->mixing_weights[j] * exp(df->logpdf(data[i], &result->params[j])) :
+                        result->mixing_weights[j] * df->pdf(data[i], &result->params[j]);
+                    tot += (p < PDF_FLOOR ? PDF_FLOOR : p);
+                }
+                ll_check += log(tot);
+            }
+            if (ll_check < prev_ll - 1.0) {
+                /* Revert to θ2 (safe double-step) */
+                UNPACK_THETA(theta2);
+            } else {
+                prev_ll = ll_check;
+                iter++;  /* count the extra EM step we did */
+            }
+        }
     }
+
+    #undef PACK_THETA
+    #undef UNPACK_THETA
 
     result->iterations = iter;
     result->loglikelihood = prev_ll;
@@ -1432,6 +1602,7 @@ int UnmixGeneric(const double* data, size_t n, DistFamily family, int k,
 
     free(resp);
     free(weights_j);
+    free(theta0); free(theta1); free(theta2);
 
     return 0;
 }
