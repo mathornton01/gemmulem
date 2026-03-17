@@ -37,7 +37,26 @@ typedef enum {
     DIST_INVGAUSS    = 12,  /* Inverse-Gaussian: positive right-skewed */
     DIST_RAYLEIGH    = 13,  /* Rayleigh: positive, wind/signal amplitude */
     DIST_PARETO      = 14,  /* Pareto: power-law tails */
-    DIST_COUNT       = 15   /* sentinel: number of distributions */
+    DIST_LOGISTIC    = 15,  /* Logistic: similar to Gaussian, heavier tails */
+    DIST_GUMBEL      = 16,  /* Gumbel (Extreme Value Type I): max/min modeling */
+    DIST_SKEWNORMAL  = 17,  /* Skew-Normal: asymmetric generalization of Normal */
+    DIST_GENGAUSS    = 18,  /* Generalized Gaussian: shape between Laplace and Gaussian */
+    DIST_CHISQ       = 19,  /* Chi-squared: sum of squared normals */
+    DIST_F           = 20,  /* F-distribution: ratio of chi-squareds */
+    DIST_LOGLOGISTIC = 21,  /* Log-Logistic (Fisk): positive heavy-tailed */
+    DIST_NAKAGAMI    = 22,  /* Nakagami: fading channel modeling */
+    DIST_LEVY        = 23,  /* Lévy: stable, very heavy right tail */
+    DIST_GOMPERTZ    = 24,  /* Gompertz: survival/actuarial modeling */
+    DIST_BURR        = 25,  /* Burr Type XII: flexible positive distribution */
+    DIST_HALFNORMAL  = 26,  /* Half-Normal: folded Gaussian, x>=0 */
+    DIST_MAXWELL     = 27,  /* Maxwell-Boltzmann: particle speed distribution */
+    DIST_KUMARASWAMY = 28,  /* Kumaraswamy: Beta-like on [0,1], closed-form CDF */
+    DIST_TRIANGULAR  = 29,  /* Triangular: bounded [a,b] with mode c */
+    DIST_BINOMIAL    = 30,  /* Binomial: discrete, n trials */
+    DIST_NEGBINOM    = 31,  /* Negative Binomial: overdispersed counts */
+    DIST_GEOMETRIC   = 32,  /* Geometric: trials until first success */
+    DIST_ZIPF        = 33,  /* Zipf: power-law discrete (rank-frequency) */
+    DIST_COUNT       = 34   /* sentinel: number of distributions */
 } DistFamily;
 
 /* Per-component parameters */

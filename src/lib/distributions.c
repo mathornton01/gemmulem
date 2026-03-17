@@ -636,6 +636,591 @@ static int pareto_valid(double x) { return x > 0; }
 
 
 /* ====================================================================
+ * 16. LOGISTIC: μ, s  (domain: ℝ)
+ * ==================================================================== */
+static double logistic_pdf(double x, const DistParams* p) {
+    double mu = p->p[0], s = fmax(p->p[1], 1e-10);
+    double z = (x - mu) / s;
+    double ez = exp(-z);
+    return ez / (s * (1+ez) * (1+ez));
+}
+static double logistic_logpdf(double x, const DistParams* p) {
+    double mu = p->p[0], s = fmax(p->p[1], 1e-10);
+    double z = (x - mu) / s;
+    return -z - log(s) - 2*log(1+exp(-z));
+}
+static void logistic_estimate(const double* x, const double* w, size_t n, DistParams* out) {
+    double mu = wt_mean(x, w, n);
+    double var = wt_var(x, w, n, mu);
+    out->p[0] = mu;
+    out->p[1] = fmax(sqrt(var * 3.0) / M_PI, 1e-10);  /* s = sigma*sqrt(3)/pi */
+    out->nparams = 2;
+}
+static void logistic_init(const double* x, size_t n, int k, DistParams* out) {
+    double mn=x[0],mx=x[0]; for(size_t i=1;i<n;i++){if(x[i]<mn)mn=x[i];if(x[i]>mx)mx=x[i];}
+    for(int j=0;j<k;j++){out[j].p[0]=mn+(mx-mn)*(j+1.0)/(k+1);out[j].p[1]=(mx-mn)/(2*k);out[j].nparams=2;}
+}
+static int logistic_valid(double x) { (void)x; return 1; }
+
+/* ====================================================================
+ * 17. GUMBEL (Type I Extreme Value): μ, β  (domain: ℝ)
+ * ==================================================================== */
+static double gumbel_pdf(double x, const DistParams* p) {
+    double mu = p->p[0], b = fmax(p->p[1], 1e-10);
+    double z = (x - mu) / b;
+    return exp(-(z + exp(-z))) / b;
+}
+static double gumbel_logpdf(double x, const DistParams* p) {
+    double mu = p->p[0], b = fmax(p->p[1], 1e-10);
+    double z = (x - mu) / b;
+    return -(z + exp(-z)) - log(b);
+}
+static void gumbel_estimate(const double* x, const double* w, size_t n, DistParams* out) {
+    double mu = wt_mean(x, w, n);
+    double var = wt_var(x, w, n, mu);
+    out->p[1] = fmax(sqrt(var * 6.0) / M_PI, 1e-10);  /* β = σ√6/π */
+    out->p[0] = mu - 0.5772 * out->p[1];  /* μ = mean - γ·β */
+    out->nparams = 2;
+}
+static void gumbel_init(const double* x, size_t n, int k, DistParams* out) {
+    double mn=x[0],mx=x[0]; for(size_t i=1;i<n;i++){if(x[i]<mn)mn=x[i];if(x[i]>mx)mx=x[i];}
+    for(int j=0;j<k;j++){out[j].p[0]=mn+(mx-mn)*(j+1.0)/(k+1);out[j].p[1]=(mx-mn)/(2*k);out[j].nparams=2;}
+}
+static int gumbel_valid(double x) { (void)x; return 1; }
+
+/* ====================================================================
+ * 18. SKEW-NORMAL: ξ (location), ω (scale), α (shape)  (domain: ℝ)
+ * ==================================================================== */
+static double skewnorm_phi(double x) { return exp(-0.5*x*x) / sqrt(2*M_PI); }
+static double skewnorm_Phi(double x) { return 0.5 * erfc(-x / sqrt(2.0)); }
+static double skewnorm_pdf(double x, const DistParams* p) {
+    double xi = p->p[0], omega = fmax(p->p[1], 1e-10), alpha = p->p[2];
+    double z = (x - xi) / omega;
+    return 2.0 / omega * skewnorm_phi(z) * skewnorm_Phi(alpha * z);
+}
+static double skewnorm_logpdf(double x, const DistParams* p) {
+    double v = skewnorm_pdf(x, p);
+    return (v > 0) ? log(v) : -700;
+}
+static void skewnorm_estimate(const double* x, const double* w, size_t n, DistParams* out) {
+    double mu = wt_mean(x, w, n);
+    double var = wt_var(x, w, n, mu);
+    double sw = 0, m3 = 0;
+    for (size_t i = 0; i < n; i++) sw += w[i];
+    double sd = sqrt(fmax(var, 1e-10));
+    for (size_t i = 0; i < n; i++) { double d = (x[i]-mu)/sd; m3 += w[i]*d*d*d; }
+    m3 /= sw;
+    /* Method of moments approximation */
+    double gamma1 = fmax(-0.99, fmin(0.99, m3));
+    double delta = (gamma1 > 0 ? 1 : -1) * sqrt(M_PI/2 * fabs(gamma1) / (fabs(gamma1) + pow((4-M_PI)/2, 2.0/3)));
+    if (!isfinite(delta)) delta = 0;
+    double alpha = delta / sqrt(1 - delta*delta + 1e-10);
+    double omega = sd / sqrt(1 - 2*delta*delta/M_PI + 1e-10);
+    double xi = mu - omega * delta * sqrt(2/M_PI);
+    out->p[0] = xi; out->p[1] = fmax(omega, 1e-10); out->p[2] = alpha;
+    out->nparams = 3;
+}
+static void skewnorm_init(const double* x, size_t n, int k, DistParams* out) {
+    double mn=x[0],mx=x[0]; for(size_t i=1;i<n;i++){if(x[i]<mn)mn=x[i];if(x[i]>mx)mx=x[i];}
+    for(int j=0;j<k;j++){out[j].p[0]=mn+(mx-mn)*(j+1.0)/(k+1);out[j].p[1]=(mx-mn)/(2*k);out[j].p[2]=0;out[j].nparams=3;}
+}
+static int skewnorm_valid(double x) { (void)x; return 1; }
+
+/* ====================================================================
+ * 19. GENERALIZED GAUSSIAN: μ, α (scale), β (shape)  (domain: ℝ)
+ *     β=1 → Laplace, β=2 → Gaussian, β→∞ → Uniform
+ * ==================================================================== */
+static double gengauss_pdf(double x, const DistParams* p) {
+    double mu = p->p[0], a = fmax(p->p[1], 1e-10), b = fmax(p->p[2], 0.5);
+    double z = fabs(x - mu) / a;
+    return b / (2*a*tgamma(1.0/b)) * exp(-pow(z, b));
+}
+static double gengauss_logpdf(double x, const DistParams* p) {
+    double mu = p->p[0], a = fmax(p->p[1], 1e-10), b = fmax(p->p[2], 0.5);
+    double z = fabs(x - mu) / a;
+    return log(b) - log(2*a) - lgamma(1.0/b) - pow(z, b);
+}
+static void gengauss_estimate(const double* x, const double* w, size_t n, DistParams* out) {
+    double mu = wt_mean(x, w, n);
+    double var = wt_var(x, w, n, mu);
+    double sw = 0, m4 = 0;
+    for (size_t i = 0; i < n; i++) sw += w[i];
+    for (size_t i = 0; i < n; i++) { double d = x[i]-mu; m4 += w[i]*d*d*d*d; }
+    m4 /= sw;
+    double kurtosis = m4 / (var*var + 1e-20);
+    /* Approximate β from kurtosis: kurtosis = Γ(5/β)Γ(1/β)/Γ(3/β)² */
+    double beta = 2.0; /* default: Gaussian */
+    if (kurtosis > 3.5) beta = 1.5; else if (kurtosis > 5) beta = 1.0;
+    else if (kurtosis < 2.5) beta = 3.0; else if (kurtosis < 2) beta = 5.0;
+    beta = fmax(0.3, fmin(10, beta));
+    double alpha = sqrt(var * tgamma(1.0/beta) / tgamma(3.0/beta));
+    out->p[0] = mu; out->p[1] = fmax(alpha, 1e-10); out->p[2] = beta;
+    out->nparams = 3;
+}
+static void gengauss_init(const double* x, size_t n, int k, DistParams* out) {
+    double mn=x[0],mx=x[0]; for(size_t i=1;i<n;i++){if(x[i]<mn)mn=x[i];if(x[i]>mx)mx=x[i];}
+    for(int j=0;j<k;j++){out[j].p[0]=mn+(mx-mn)*(j+1.0)/(k+1);out[j].p[1]=(mx-mn)/(2*k);out[j].p[2]=2.0;out[j].nparams=3;}
+}
+static int gengauss_valid(double x) { (void)x; return 1; }
+
+/* ====================================================================
+ * 20. CHI-SQUARED: k (degrees of freedom)  (domain: x>0)
+ * ==================================================================== */
+static double chisq_pdf(double x, const DistParams* p) {
+    double k = fmax(p->p[0], 0.5);
+    if (x <= 0) return 0;
+    return exp((k/2-1)*log(x) - x/2 - (k/2)*log(2) - lgamma(k/2));
+}
+static double chisq_logpdf(double x, const DistParams* p) {
+    double k = fmax(p->p[0], 0.5);
+    if (x <= 0) return -700;
+    return (k/2-1)*log(x) - x/2 - (k/2)*log(2) - lgamma(k/2);
+}
+static void chisq_estimate(const double* x, const double* w, size_t n, DistParams* out) {
+    double mu = wt_mean(x, w, n);
+    out->p[0] = fmax(mu, 0.5);  /* E[X] = k */
+    out->nparams = 1;
+}
+static void chisq_init(const double* x, size_t n, int k, DistParams* out) {
+    double mean=0; for(size_t i=0;i<n;i++) mean+=x[i]; mean/=n;
+    for(int j=0;j<k;j++){out[j].p[0]=fmax(mean*(0.5+j)/k,0.5);out[j].nparams=1;}
+}
+static int chisq_valid(double x) { return x > 0; }
+
+/* ====================================================================
+ * 21. F-DISTRIBUTION: d1, d2  (domain: x>0)
+ * ==================================================================== */
+static double fdist_pdf(double x, const DistParams* p) {
+    double d1 = fmax(p->p[0], 1), d2 = fmax(p->p[1], 1);
+    if (x <= 0) return 0;
+    return exp(0.5*(d1*log(d1)+d2*log(d2)+(d1-2)*log(x)
+              -((d1+d2)/2)*log(d1*x+d2))
+              +lgamma((d1+d2)/2)-lgamma(d1/2)-lgamma(d2/2));
+}
+static double fdist_logpdf(double x, const DistParams* p) {
+    double d1 = fmax(p->p[0], 1), d2 = fmax(p->p[1], 1);
+    if (x <= 0) return -700;
+    return 0.5*(d1*log(d1/d2)+(d1-2)*log(x)-(d1+d2)*log(1+d1*x/d2))
+           +lgamma((d1+d2)/2)-lgamma(d1/2)-lgamma(d2/2)-log(x);
+}
+static void fdist_estimate(const double* x, const double* w, size_t n, DistParams* out) {
+    double mu = wt_mean(x, w, n);
+    double var = wt_var(x, w, n, mu);
+    /* E[X] = d2/(d2-2); Var = 2*d2^2*(d1+d2-2)/(d1*(d2-2)^2*(d2-4)) */
+    double d2 = fmax(2*mu/(mu-1+1e-10), 5);
+    double d1 = fmax(2*d2*d2*(d2-2)/(var*(d2-2)*(d2-2)*(d2-4+1e-10))-d2+2, 1);
+    out->p[0] = fmax(d1, 1); out->p[1] = fmax(d2, 5);
+    out->nparams = 2;
+}
+static void fdist_init(const double* x, size_t n, int k, DistParams* out) {
+    for(int j=0;j<k;j++){out[j].p[0]=5+j*3;out[j].p[1]=10+j*5;out[j].nparams=2;}
+}
+static int fdist_valid(double x) { return x > 0; }
+
+/* ====================================================================
+ * 22. LOG-LOGISTIC (Fisk): α (scale), β (shape)  (domain: x>0)
+ * ==================================================================== */
+static double loglogistic_pdf(double x, const DistParams* p) {
+    double a = fmax(p->p[0], 1e-10), b = fmax(p->p[1], 0.5);
+    if (x <= 0) return 0;
+    double t = pow(x/a, b);
+    return (b/a) * pow(x/a, b-1) / ((1+t)*(1+t));
+}
+static double loglogistic_logpdf(double x, const DistParams* p) {
+    double a = fmax(p->p[0], 1e-10), b = fmax(p->p[1], 0.5);
+    if (x <= 0) return -700;
+    double t = pow(x/a, b);
+    return log(b) - log(a) + (b-1)*(log(x)-log(a)) - 2*log(1+t);
+}
+static void loglogistic_estimate(const double* x, const double* w, size_t n, DistParams* out) {
+    /* MLE via log moments */
+    double sw=0, slx=0, slx2=0;
+    for(size_t i=0;i<n;i++){if(x[i]>0){sw+=w[i]; slx+=w[i]*log(x[i]); slx2+=w[i]*log(x[i])*log(x[i]);}}
+    if(sw<1){out->p[0]=1;out->p[1]=2;out->nparams=2;return;}
+    double mu_lx = slx/sw, var_lx = slx2/sw - mu_lx*mu_lx;
+    out->p[0] = fmax(exp(mu_lx), 1e-10);
+    out->p[1] = fmax(M_PI / (sqrt(3*fmax(var_lx,1e-10))), 0.5);
+    out->nparams = 2;
+}
+static void loglogistic_init(const double* x, size_t n, int k, DistParams* out) {
+    double mean=0; int cnt=0; for(size_t i=0;i<n;i++){if(x[i]>0){mean+=x[i];cnt++;}} mean/=fmax(cnt,1);
+    for(int j=0;j<k;j++){out[j].p[0]=mean*(0.5+j)/k;out[j].p[1]=2.0;out[j].nparams=2;}
+}
+static int loglogistic_valid(double x) { return x > 0; }
+
+/* ====================================================================
+ * 23. NAKAGAMI: m (shape ≥0.5), Ω (spread)  (domain: x>0)
+ * ==================================================================== */
+static double nakagami_pdf(double x, const DistParams* p) {
+    double m = fmax(p->p[0], 0.5), om = fmax(p->p[1], 1e-10);
+    if (x <= 0) return 0;
+    return 2*pow(m/om,m)/tgamma(m)*pow(x,2*m-1)*exp(-m*x*x/om);
+}
+static double nakagami_logpdf(double x, const DistParams* p) {
+    double m = fmax(p->p[0], 0.5), om = fmax(p->p[1], 1e-10);
+    if (x <= 0) return -700;
+    return log(2)+m*log(m/om)-lgamma(m)+(2*m-1)*log(x)-m*x*x/om;
+}
+static void nakagami_estimate(const double* x, const double* w, size_t n, DistParams* out) {
+    double sw=0,s1=0,s2=0;
+    for(size_t i=0;i<n;i++){if(x[i]>0){sw+=w[i];s1+=w[i]*x[i]*x[i];s2+=w[i]*x[i]*x[i]*x[i]*x[i];}}
+    if(sw<1){out->p[0]=1;out->p[1]=1;out->nparams=2;return;}
+    double E2=s1/sw, E4=s2/sw;
+    double om=E2, m=E2*E2/fmax(E4-E2*E2,1e-10);
+    out->p[0]=fmax(m,0.5); out->p[1]=fmax(om,1e-10); out->nparams=2;
+}
+static void nakagami_init(const double* x, size_t n, int k, DistParams* out) {
+    double s=0; for(size_t i=0;i<n;i++) s+=x[i]*x[i]; s/=n;
+    for(int j=0;j<k;j++){out[j].p[0]=1.0+j;out[j].p[1]=s*(0.5+j)/k;out[j].nparams=2;}
+}
+static int nakagami_valid(double x) { return x > 0; }
+
+/* ====================================================================
+ * 24. LÉVY: μ (location), c (scale)  (domain: x > μ)
+ * ==================================================================== */
+static double levy_pdf(double x, const DistParams* p) {
+    double mu = p->p[0], c = fmax(p->p[1], 1e-10);
+    if (x <= mu) return 0;
+    double d = x - mu;
+    return sqrt(c/(2*M_PI)) * exp(-c/(2*d)) / (d*sqrt(d));
+}
+static double levy_logpdf(double x, const DistParams* p) {
+    double mu = p->p[0], c = fmax(p->p[1], 1e-10);
+    if (x <= mu) return -700;
+    double d = x - mu;
+    return 0.5*(log(c)-log(2*M_PI)) - c/(2*d) - 1.5*log(d);
+}
+static void levy_estimate(const double* x, const double* w, size_t n, DistParams* out) {
+    /* Estimate: μ ≈ min(x), c from harmonic mean of (x-μ) */
+    double mn = 1e30, sw=0, sh=0;
+    for(size_t i=0;i<n;i++){if(w[i]>0.01&&x[i]<mn) mn=x[i]; sw+=w[i];}
+    for(size_t i=0;i<n;i++){double d=x[i]-mn; if(d>1e-10) sh+=w[i]/d;}
+    double hm = sw/fmax(sh,1e-10);
+    out->p[0] = mn; out->p[1] = fmax(hm, 1e-10);
+    out->nparams = 2;
+}
+static void levy_init(const double* x, size_t n, int k, DistParams* out) {
+    double mn=x[0]; for(size_t i=1;i<n;i++){if(x[i]<mn) mn=x[i];}
+    for(int j=0;j<k;j++){out[j].p[0]=mn;out[j].p[1]=1.0+j;out[j].nparams=2;}
+}
+static int levy_valid(double x) { (void)x; return x > 0; }
+
+/* ====================================================================
+ * 25. GOMPERTZ: η (shape), b (rate)  (domain: x ≥ 0)
+ * ==================================================================== */
+static double gompertz_pdf(double x, const DistParams* p) {
+    double eta = fmax(p->p[0], 1e-10), b = fmax(p->p[1], 1e-10);
+    if (x < 0) return 0;
+    return b * eta * exp(eta + b*x - eta*exp(b*x));
+}
+static double gompertz_logpdf(double x, const DistParams* p) {
+    double eta = fmax(p->p[0], 1e-10), b = fmax(p->p[1], 1e-10);
+    if (x < 0) return -700;
+    return log(b) + log(eta) + eta + b*x - eta*exp(b*x);
+}
+static void gompertz_estimate(const double* x, const double* w, size_t n, DistParams* out) {
+    double mu = wt_mean(x, w, n);
+    out->p[0] = 0.1; out->p[1] = fmax(1.0/mu, 1e-10);
+    out->nparams = 2;
+}
+static void gompertz_init(const double* x, size_t n, int k, DistParams* out) {
+    double mean=0; for(size_t i=0;i<n;i++) mean+=x[i]; mean/=n;
+    for(int j=0;j<k;j++){out[j].p[0]=0.1*(j+1);out[j].p[1]=1.0/fmax(mean,1e-10);out[j].nparams=2;}
+}
+static int gompertz_valid(double x) { return x >= 0; }
+
+/* ====================================================================
+ * 26. BURR TYPE XII: c, k (both > 0)  (domain: x > 0)
+ *     pdf = c*k*x^(c-1) / (1+x^c)^(k+1)
+ * ==================================================================== */
+static double burr_pdf(double x, const DistParams* p) {
+    double c = fmax(p->p[0], 0.5), k = fmax(p->p[1], 0.5);
+    if (x <= 0) return 0;
+    return c*k*pow(x,c-1) / pow(1+pow(x,c), k+1);
+}
+static double burr_logpdf(double x, const DistParams* p) {
+    double c = fmax(p->p[0], 0.5), k = fmax(p->p[1], 0.5);
+    if (x <= 0) return -700;
+    return log(c)+log(k)+(c-1)*log(x)-(k+1)*log(1+pow(x,c));
+}
+static void burr_estimate(const double* x, const double* w, size_t n, DistParams* out) {
+    /* Rough MoM: E[X]=kB(k-1/c,1+1/c), use log-moments for c, then k */
+    double sw=0,slx=0;
+    for(size_t i=0;i<n;i++){if(x[i]>0){sw+=w[i];slx+=w[i]*log(x[i]);}}
+    double mul = slx/fmax(sw,1);
+    out->p[0] = fmax(M_PI/(sqrt(6)*fmax(sqrt(wt_var(x,w,n,wt_mean(x,w,n))),1e-10)/fmax(wt_mean(x,w,n),1e-10)), 0.5);
+    out->p[1] = fmax(1.0, 0.5);
+    out->nparams = 2;
+}
+static void burr_init(const double* x, size_t n, int k, DistParams* out) {
+    for(int j=0;j<k;j++){out[j].p[0]=2.0;out[j].p[1]=2.0+j;out[j].nparams=2;}
+}
+static int burr_valid(double x) { return x > 0; }
+
+/* ====================================================================
+ * 27. HALF-NORMAL: σ  (domain: x ≥ 0)
+ *     pdf = sqrt(2/(πσ²)) * exp(-x²/(2σ²))
+ * ==================================================================== */
+static double halfnorm_pdf(double x, const DistParams* p) {
+    double s = fmax(p->p[0], 1e-10);
+    if (x < 0) return 0;
+    return sqrt(2.0/(M_PI*s*s)) * exp(-x*x/(2*s*s));
+}
+static double halfnorm_logpdf(double x, const DistParams* p) {
+    double s = fmax(p->p[0], 1e-10);
+    if (x < 0) return -700;
+    return 0.5*log(2.0/(M_PI*s*s)) - x*x/(2*s*s);
+}
+static void halfnorm_estimate(const double* x, const double* w, size_t n, DistParams* out) {
+    double sw=0,s2=0;
+    for(size_t i=0;i<n;i++){sw+=w[i];s2+=w[i]*x[i]*x[i];}
+    out->p[0] = fmax(sqrt(s2/fmax(sw,1)), 1e-10);
+    out->nparams = 1;
+}
+static void halfnorm_init(const double* x, size_t n, int k, DistParams* out) {
+    double s2=0; for(size_t i=0;i<n;i++) s2+=x[i]*x[i]; s2/=n;
+    for(int j=0;j<k;j++){out[j].p[0]=sqrt(s2)*(0.5+j)/k;out[j].nparams=1;}
+}
+static int halfnorm_valid(double x) { return x >= 0; }
+
+/* ====================================================================
+ * 28. MAXWELL-BOLTZMANN: a (parameter)  (domain: x ≥ 0)
+ *     pdf = sqrt(2/π) * x² * exp(-x²/(2a²)) / a³
+ * ==================================================================== */
+static double maxwell_pdf(double x, const DistParams* p) {
+    double a = fmax(p->p[0], 1e-10);
+    if (x < 0) return 0;
+    return sqrt(2.0/M_PI) * x*x * exp(-x*x/(2*a*a)) / (a*a*a);
+}
+static double maxwell_logpdf(double x, const DistParams* p) {
+    double a = fmax(p->p[0], 1e-10);
+    if (x <= 0) return -700;
+    return 0.5*log(2.0/M_PI) + 2*log(x) - x*x/(2*a*a) - 3*log(a);
+}
+static void maxwell_estimate(const double* x, const double* w, size_t n, DistParams* out) {
+    double sw=0,s2=0;
+    for(size_t i=0;i<n;i++){if(x[i]>0){sw+=w[i];s2+=w[i]*x[i]*x[i];}}
+    /* E[X²] = 3a² → a = sqrt(E[X²]/3) */
+    out->p[0] = fmax(sqrt(s2/(3*fmax(sw,1))), 1e-10);
+    out->nparams = 1;
+}
+static void maxwell_init(const double* x, size_t n, int k, DistParams* out) {
+    double s2=0; for(size_t i=0;i<n;i++) s2+=x[i]*x[i]; s2/=n;
+    for(int j=0;j<k;j++){out[j].p[0]=sqrt(s2/3)*(0.5+j)/k;out[j].nparams=1;}
+}
+static int maxwell_valid(double x) { return x >= 0; }
+
+/* ====================================================================
+ * 29. KUMARASWAMY: a, b  (domain: x ∈ (0,1))
+ *     pdf = a*b*x^(a-1)*(1-x^a)^(b-1)
+ * ==================================================================== */
+static double kumaraswamy_pdf(double x, const DistParams* p) {
+    double a = fmax(p->p[0], 0.1), b = fmax(p->p[1], 0.1);
+    if (x <= 0 || x >= 1) return 0;
+    return a*b*pow(x,a-1)*pow(1-pow(x,a),b-1);
+}
+static double kumaraswamy_logpdf(double x, const DistParams* p) {
+    double a = fmax(p->p[0], 0.1), b = fmax(p->p[1], 0.1);
+    if (x <= 0 || x >= 1) return -700;
+    double xa = pow(x, a);
+    return log(a)+log(b)+(a-1)*log(x)+(b-1)*log(fmax(1-xa, 1e-300));
+}
+static void kumaraswamy_estimate(const double* x, const double* w, size_t n, DistParams* out) {
+    /* Approximate MoM via log-moments */
+    double sw=0,slx=0,sl1x=0;
+    for(size_t i=0;i<n;i++){
+        if(x[i]>0&&x[i]<1){sw+=w[i];slx+=w[i]*log(x[i]);sl1x+=w[i]*log(1-x[i]);}
+    }
+    if(sw<1){out->p[0]=1;out->p[1]=1;out->nparams=2;return;}
+    /* Heuristic: use Beta MoM as starting point */
+    double mu=wt_mean(x,w,n), var=wt_var(x,w,n,mu);
+    if(var<1e-10) var=0.01;
+    double t=mu*(1-mu)/var-1;
+    out->p[0]=fmax(mu*t,0.1); out->p[1]=fmax((1-mu)*t,0.1);
+    out->nparams=2;
+}
+static void kumaraswamy_init(const double* x, size_t n, int k, DistParams* out) {
+    for(int j=0;j<k;j++){out[j].p[0]=1.0+j;out[j].p[1]=1.0+j;out[j].nparams=2;}
+}
+static int kumaraswamy_valid(double x) { return x > 0 && x < 1; }
+
+/* ====================================================================
+ * 30. TRIANGULAR: a (min), b (max), c (mode)  (domain: a ≤ x ≤ b)
+ *     Stored as p[0]=a, p[1]=b, p[2]=c
+ * ==================================================================== */
+static double triangular_pdf(double x, const DistParams* p) {
+    double a = p->p[0], b = p->p[1], c = p->p[2];
+    if (b <= a) b = a + 1e-10;
+    if (c < a) c = a; if (c > b) c = b;
+    if (x < a || x > b) return 0;
+    if (x < c) return 2*(x-a)/((b-a)*(c-a+1e-300));
+    if (x > c) return 2*(b-x)/((b-a)*(b-c+1e-300));
+    return 2.0/(b-a);
+}
+static double triangular_logpdf(double x, const DistParams* p) {
+    double v = triangular_pdf(x, p);
+    return v > 0 ? log(v) : -700;
+}
+static void triangular_estimate(const double* x, const double* w, size_t n, DistParams* out) {
+    double mu = wt_mean(x, w, n);
+    double var = wt_var(x, w, n, mu);
+    double sd = sqrt(fmax(var, 1e-10));
+    /* a ≈ mu - √6·σ, b ≈ mu + √6·σ, c ≈ mu */
+    out->p[0] = mu - sqrt(6.0)*sd;
+    out->p[1] = mu + sqrt(6.0)*sd;
+    out->p[2] = mu;
+    out->nparams = 3;
+}
+static void triangular_init(const double* x, size_t n, int k, DistParams* out) {
+    double mn=x[0],mx=x[0]; for(size_t i=1;i<n;i++){if(x[i]<mn)mn=x[i];if(x[i]>mx)mx=x[i];}
+    double range=mx-mn; if(range<1e-10) range=1;
+    for(int j=0;j<k;j++){
+        double lo=mn+range*j/k, hi=mn+range*(j+1)/k;
+        out[j].p[0]=lo;out[j].p[1]=hi;out[j].p[2]=(lo+hi)/2;out[j].nparams=3;
+    }
+}
+static int triangular_valid(double x) { (void)x; return 1; }
+
+/* ====================================================================
+ * 31. BINOMIAL: n (trials), p (success prob)  (domain: x ∈ {0,..,n})
+ * ==================================================================== */
+static double log_choose(double n, double k) {
+    return lgamma(n+1) - lgamma(k+1) - lgamma(n-k+1);
+}
+static double binomial_pdf(double x, const DistParams* p) {
+    int n = (int)fmax(p->p[0], 1);
+    double pr = fmax(1e-10, fmin(1-1e-10, p->p[1]));
+    int k = (int)(x + 0.5);
+    if (k < 0 || k > n) return 0;
+    return exp(log_choose(n,k) + k*log(pr) + (n-k)*log(1-pr));
+}
+static double binomial_logpdf(double x, const DistParams* p) {
+    double v = binomial_pdf(x, p);
+    return v > 0 ? log(v) : -700;
+}
+static void binomial_estimate(const double* x, const double* w, size_t n, DistParams* out) {
+    double mu = wt_mean(x, w, n);
+    double var = wt_var(x, w, n, mu);
+    /* n = mu²/(mu - var), p = mu/n */
+    double est_n;
+    if (var < mu) est_n = mu*mu / fmax(mu - var, 1e-10); else est_n = fmax(mu, 1);
+    est_n = fmax(round(est_n), 1);
+    out->p[0] = est_n;
+    out->p[1] = fmax(1e-10, fmin(1-1e-10, mu/est_n));
+    out->nparams = 2;
+}
+static void binomial_init(const double* x, size_t n, int k, DistParams* out) {
+    double mx=x[0]; for(size_t i=1;i<n;i++){if(x[i]>mx)mx=x[i];}
+    for(int j=0;j<k;j++){out[j].p[0]=fmax(mx,1);out[j].p[1]=0.5;out[j].nparams=2;}
+}
+static int binomial_valid(double x) { return x >= 0 && x == floor(x); }
+
+/* ====================================================================
+ * 32. NEGATIVE BINOMIAL: r (successes), p (success prob)
+ *     (domain: x ∈ {0,1,2,...})
+ * ==================================================================== */
+static double negbinom_pdf(double x, const DistParams* p) {
+    double r = fmax(p->p[0], 0.5);
+    double pr = fmax(1e-10, fmin(1-1e-10, p->p[1]));
+    int k = (int)(x + 0.5);
+    if (k < 0) return 0;
+    return exp(lgamma(k+r)-lgamma(k+1)-lgamma(r) + r*log(pr) + k*log(1-pr));
+}
+static double negbinom_logpdf(double x, const DistParams* p) {
+    double r = fmax(p->p[0], 0.5);
+    double pr = fmax(1e-10, fmin(1-1e-10, p->p[1]));
+    int k = (int)(x + 0.5);
+    if (k < 0) return -700;
+    return lgamma(k+r)-lgamma(k+1)-lgamma(r) + r*log(pr) + k*log(1-pr);
+}
+static void negbinom_estimate(const double* x, const double* w, size_t n, DistParams* out) {
+    double mu = wt_mean(x, w, n);
+    double var = wt_var(x, w, n, mu);
+    /* var = μ(1-p)/p, r = μp/(1-p) → p = μ/var (if var>μ) */
+    double p_est = (var > mu) ? mu/var : 0.5;
+    double r_est = mu*p_est/(1-p_est+1e-10);
+    out->p[0] = fmax(r_est, 0.5);
+    out->p[1] = fmax(1e-10, fmin(1-1e-10, p_est));
+    out->nparams = 2;
+}
+static void negbinom_init(const double* x, size_t n, int k, DistParams* out) {
+    double mean=0; for(size_t i=0;i<n;i++) mean+=x[i]; mean/=n;
+    for(int j=0;j<k;j++){out[j].p[0]=fmax(mean*(0.5+j)/k,0.5);out[j].p[1]=0.5;out[j].nparams=2;}
+}
+static int negbinom_valid(double x) { return x >= 0 && x == floor(x); }
+
+/* ====================================================================
+ * 33. GEOMETRIC: p (success probability)  (domain: x ∈ {0,1,2,...})
+ *     P(X=k) = (1-p)^k * p
+ * ==================================================================== */
+static double geometric_pdf(double x, const DistParams* p) {
+    double pr = fmax(1e-10, fmin(1-1e-10, p->p[0]));
+    int k = (int)(x + 0.5);
+    if (k < 0) return 0;
+    return pr * pow(1-pr, k);
+}
+static double geometric_logpdf(double x, const DistParams* p) {
+    double pr = fmax(1e-10, fmin(1-1e-10, p->p[0]));
+    int k = (int)(x + 0.5);
+    if (k < 0) return -700;
+    return log(pr) + k*log(1-pr);
+}
+static void geometric_estimate(const double* x, const double* w, size_t n, DistParams* out) {
+    double mu = wt_mean(x, w, n);
+    out->p[0] = fmax(1e-10, fmin(1-1e-10, 1.0/(1+mu)));
+    out->nparams = 1;
+}
+static void geometric_init(const double* x, size_t n, int k, DistParams* out) {
+    for(int j=0;j<k;j++){out[j].p[0]=0.5;out[j].nparams=1;}
+}
+static int geometric_valid(double x) { return x >= 0 && x == floor(x); }
+
+/* ====================================================================
+ * 34. ZIPF: s (exponent > 1)  (domain: x ∈ {1,2,3,...})
+ *     P(X=k) = k^(-s) / ζ(s)
+ * ==================================================================== */
+static double zeta_approx(double s) {
+    /* Riemann zeta via partial sum + Euler-Maclaurin */
+    double sum = 0;
+    for (int k = 1; k <= 1000; k++) sum += pow(k, -s);
+    return sum;
+}
+static double zipf_pdf(double x, const DistParams* p) {
+    double s = fmax(p->p[0], 1.01);
+    int k = (int)(x + 0.5);
+    if (k < 1) return 0;
+    return pow(k, -s) / zeta_approx(s);
+}
+static double zipf_logpdf(double x, const DistParams* p) {
+    double s = fmax(p->p[0], 1.01);
+    int k = (int)(x + 0.5);
+    if (k < 1) return -700;
+    return -s*log(k) - log(zeta_approx(s));
+}
+static void zipf_estimate(const double* x, const double* w, size_t n, DistParams* out) {
+    /* MLE: s that makes E[log(k)] = ζ'(s)/ζ(s) — use grid search */
+    double sw=0, slx=0;
+    for(size_t i=0;i<n;i++){if(x[i]>=1){sw+=w[i];slx+=w[i]*log(x[i]);}}
+    double ml = slx/fmax(sw,1);
+    /* Grid search for s ∈ [1.01, 10] */
+    double best_s=2, best_diff=1e30;
+    for(double s=1.01; s<=10; s+=0.05) {
+        double z=0,zp=0;
+        for(int k=1;k<=500;k++){double ks=pow(k,-s);z+=ks;zp+=ks*log(k);}
+        double expected=-zp/z;
+        double diff=fabs(expected-ml);
+        if(diff<best_diff){best_diff=diff;best_s=s;}
+    }
+    out->p[0] = best_s;
+    out->nparams = 1;
+}
+static void zipf_init(const double* x, size_t n, int k, DistParams* out) {
+    for(int j=0;j<k;j++){out[j].p[0]=1.5+j*0.5;out[j].nparams=1;}
+}
+static int zipf_valid(double x) { return x >= 1 && x == floor(x); }
+
+
+/* ====================================================================
  * Distribution registry
  * ==================================================================== */
 static DistFunctions dist_table[] = {
@@ -654,6 +1239,25 @@ static DistFunctions dist_table[] = {
     { DIST_INVGAUSS,    "InvGaussian", 2, invgauss_pdf, invgauss_logpdf, invgauss_estimate, invgauss_init, invgauss_valid },
     { DIST_RAYLEIGH,    "Rayleigh",    1, rayleigh_pdf, rayleigh_logpdf, rayleigh_estimate, rayleigh_init, rayleigh_valid },
     { DIST_PARETO,      "Pareto",      2, pareto_pdf,  pareto_logpdf,  pareto_estimate,  pareto_init,  pareto_valid },
+    { DIST_LOGISTIC,    "Logistic",    2, logistic_pdf,logistic_logpdf,logistic_estimate,logistic_init,logistic_valid },
+    { DIST_GUMBEL,      "Gumbel",      2, gumbel_pdf,  gumbel_logpdf,  gumbel_estimate,  gumbel_init,  gumbel_valid },
+    { DIST_SKEWNORMAL,  "SkewNormal",  3, skewnorm_pdf,skewnorm_logpdf,skewnorm_estimate,skewnorm_init,skewnorm_valid },
+    { DIST_GENGAUSS,    "GenGaussian", 3, gengauss_pdf,gengauss_logpdf,gengauss_estimate,gengauss_init,gengauss_valid },
+    { DIST_CHISQ,       "ChiSquared",  1, chisq_pdf,   chisq_logpdf,   chisq_estimate,   chisq_init,   chisq_valid },
+    { DIST_F,           "F",           2, fdist_pdf,   fdist_logpdf,   fdist_estimate,   fdist_init,   fdist_valid },
+    { DIST_LOGLOGISTIC, "LogLogistic", 2, loglogistic_pdf,loglogistic_logpdf,loglogistic_estimate,loglogistic_init,loglogistic_valid },
+    { DIST_NAKAGAMI,    "Nakagami",    2, nakagami_pdf,nakagami_logpdf,nakagami_estimate,nakagami_init,nakagami_valid },
+    { DIST_LEVY,        "Levy",        2, levy_pdf,    levy_logpdf,    levy_estimate,    levy_init,    levy_valid },
+    { DIST_GOMPERTZ,    "Gompertz",    2, gompertz_pdf,gompertz_logpdf,gompertz_estimate,gompertz_init,gompertz_valid },
+    { DIST_BURR,        "Burr",        2, burr_pdf,    burr_logpdf,    burr_estimate,    burr_init,    burr_valid },
+    { DIST_HALFNORMAL,  "HalfNormal",  1, halfnorm_pdf,halfnorm_logpdf,halfnorm_estimate,halfnorm_init,halfnorm_valid },
+    { DIST_MAXWELL,     "Maxwell",     1, maxwell_pdf, maxwell_logpdf, maxwell_estimate, maxwell_init, maxwell_valid },
+    { DIST_KUMARASWAMY, "Kumaraswamy", 2, kumaraswamy_pdf,kumaraswamy_logpdf,kumaraswamy_estimate,kumaraswamy_init,kumaraswamy_valid },
+    { DIST_TRIANGULAR,  "Triangular",  3, triangular_pdf,triangular_logpdf,triangular_estimate,triangular_init,triangular_valid },
+    { DIST_BINOMIAL,    "Binomial",    2, binomial_pdf,binomial_logpdf,binomial_estimate,binomial_init,binomial_valid },
+    { DIST_NEGBINOM,    "NegBinomial", 2, negbinom_pdf,negbinom_logpdf,negbinom_estimate,negbinom_init,negbinom_valid },
+    { DIST_GEOMETRIC,   "Geometric",   1, geometric_pdf,geometric_logpdf,geometric_estimate,geometric_init,geometric_valid },
+    { DIST_ZIPF,        "Zipf",        1, zipf_pdf,    zipf_logpdf,    zipf_estimate,    zipf_init,    zipf_valid },
 };
 
 static int dist_table_initialized = 0;
@@ -878,15 +1482,32 @@ int SelectBestMixture(const double* data, size_t n,
 
 /* Candidate families for adaptive selection (skip Pearson — too slow for inner loop) */
 static const DistFamily ADAPT_FAMILIES_REAL[] = {
-    DIST_GAUSSIAN, DIST_STUDENT_T, DIST_LAPLACE, DIST_CAUCHY
+    DIST_GAUSSIAN, DIST_STUDENT_T, DIST_LAPLACE, DIST_CAUCHY,
+    DIST_LOGISTIC, DIST_GUMBEL, DIST_SKEWNORMAL
 };
-static const int N_ADAPT_REAL = 4;
+static const int N_ADAPT_REAL = 7;
+/* Note: GenGaussian excluded from adaptive — subsumes Gaussian+Laplace,
+   too flexible with low β, causes single-component overfitting */
 
 static const DistFamily ADAPT_FAMILIES_POS[] = {
     DIST_EXPONENTIAL, DIST_GAMMA, DIST_LOGNORMAL, DIST_WEIBULL,
-    DIST_INVGAUSS, DIST_RAYLEIGH
+    DIST_INVGAUSS, DIST_RAYLEIGH, DIST_CHISQ, DIST_LOGLOGISTIC,
+    DIST_NAKAGAMI, DIST_LEVY, DIST_GOMPERTZ, DIST_BURR,
+    DIST_HALFNORMAL, DIST_MAXWELL
 };
-static const int N_ADAPT_POS = 6;
+static const int N_ADAPT_POS = 14;
+
+/* Bounded [0,1] families */
+static const DistFamily ADAPT_FAMILIES_UNIT[] = {
+    DIST_BETA, DIST_KUMARASWAMY
+};
+static const int N_ADAPT_UNIT = 2;
+
+/* Discrete families */
+static const DistFamily ADAPT_FAMILIES_DISC[] = {
+    DIST_POISSON, DIST_BINOMIAL, DIST_NEGBINOM, DIST_GEOMETRIC, DIST_ZIPF
+};
+static const int N_ADAPT_DISC = 5;
 
 /* Weighted log-likelihood for a single component under a given family */
 static double component_wll(const double* data, const double* weights,
@@ -950,6 +1571,32 @@ static DistFamily best_family_for_component(const double* data, const double* we
             DistParams p;
             double wll = component_wll(data, weights, n, ADAPT_FAMILIES_POS[f], &p);
             if (wll > best_wll) { best_wll = wll; best_fam = ADAPT_FAMILIES_POS[f]; best_p = p; }
+        }
+    }
+
+    /* Try unit-interval [0,1] families if all data in (0,1) */
+    int all_unit = 1;
+    for (size_t i = 0; i < n; i++) {
+        if (weights[i] > 0.01 && (data[i] <= 0 || data[i] >= 1)) { all_unit = 0; break; }
+    }
+    if (all_unit) {
+        for (int f = 0; f < N_ADAPT_UNIT; f++) {
+            DistParams p;
+            double wll = component_wll(data, weights, n, ADAPT_FAMILIES_UNIT[f], &p);
+            if (wll > best_wll) { best_wll = wll; best_fam = ADAPT_FAMILIES_UNIT[f]; best_p = p; }
+        }
+    }
+
+    /* Try discrete families if data looks integer-valued */
+    int all_integer = 1;
+    for (size_t i = 0; i < n; i++) {
+        if (weights[i] > 0.01 && fabs(data[i] - round(data[i])) > 0.01) { all_integer = 0; break; }
+    }
+    if (all_integer) {
+        for (int f = 0; f < N_ADAPT_DISC; f++) {
+            DistParams p;
+            double wll = component_wll(data, weights, n, ADAPT_FAMILIES_DISC[f], &p);
+            if (wll > best_wll) { best_wll = wll; best_fam = ADAPT_FAMILIES_DISC[f]; best_p = p; }
         }
     }
 
