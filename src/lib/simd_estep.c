@@ -120,7 +120,7 @@ static double simd_estep_avx2(const double* data, size_t n,
             double mx = row[0];
             for (int j = 1; j < k; j++) if (row[j] > mx) mx = row[j];
             double tot = 0;
-            for (int j = 0; j < k; j++) { row[j] = fast_exp(row[j]-mx); tot += row[j]; }
+            for (int j = 0; j < k; j++) { row[j] = exp(row[j]-mx); tot += row[j]; }
             ll += mx + log(tot);
             double inv_t = 1.0 / tot;
             size_t gi = i0 + t;
@@ -138,7 +138,7 @@ static double simd_estep_avx2(const double* data, size_t n,
             if (lps[j] > mx) mx = lps[j];
         }
         double tot = 0;
-        for (int j = 0; j < k; j++) { lps[j] = fast_exp(lps[j]-mx); tot += lps[j]; }
+        for (int j = 0; j < k; j++) { lps[j] = exp(lps[j]-mx); tot += lps[j]; }
         ll += mx + log(tot);
         double inv_t = 1.0 / tot;
         for (int j = 0; j < k; j++) resp[j*n+i] = lps[j] * inv_t;

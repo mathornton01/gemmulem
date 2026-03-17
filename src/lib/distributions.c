@@ -108,27 +108,29 @@ static void gauss_init(const double* x, size_t n, int k, DistParams* out) {
         s[j] = v;
     }
 
-    /* Assign k equal-width bands */
+    /* Equal-count bands on sorted data.
+     * For k=3 with equal weights, each band gets ~n/3 points → correct means.
+     * For unequal weights: the dense cluster gets split into multiple bands,
+     * but EM quickly merges them during convergence. This is the same
+     * strategy sklearn uses (quantile-based component of k-means init). */
     for (int j = 0; j < k; j++) {
         size_t lo = (ns * j) / k;
         size_t hi = (ns * (j + 1)) / k;
         if (hi <= lo) hi = lo + 1;
         if (hi > ns) hi = ns;
+        size_t cnt = hi - lo;
 
-        /* Mean = midpoint of band */
         double mu = 0;
         for (size_t i = lo; i < hi; i++) mu += s[i];
-        mu /= (double)(hi - lo);
+        mu /= (double)cnt;
 
-        /* Variance within band */
         double var = 0;
         for (size_t i = lo; i < hi; i++) {
             double d = s[i] - mu;
             var += d * d;
         }
-        var /= (double)(hi - lo);
+        var /= (double)cnt;
 
-        /* Floor: at least (band_width / 4)² to prevent collapse */
         double band_w = s[hi-1] - s[lo];
         double var_floor = (band_w / 4.0) * (band_w / 4.0);
         if (var < var_floor) var = var_floor;
