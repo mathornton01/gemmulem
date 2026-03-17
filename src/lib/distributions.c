@@ -106,15 +106,19 @@ static void gauss_init(const double* x, size_t n, int k, DistParams* out) {
 
     /* K-means++ center selection */
     double centers[64];
-    unsigned seed = 0xCAFE + (unsigned)k + (unsigned)n;
+    /* Seed varies with n so each restart gets a different starting center */
+    unsigned seed = 0xCAFE ^ (unsigned)n ^ (unsigned)(n * 6364136223846793005ULL >> 32);
 
-    /* Sort for median pick */
+    /* Sort for quantile-based first center */
     for (size_t i = 1; i < ns; i++) {
         double v = s[i]; size_t j = i;
         while (j > 0 && s[j-1] > v) { s[j] = s[j-1]; j--; }
         s[j] = v;
     }
-    centers[0] = s[ns / 2];  /* median */
+    /* First center: random quantile (not always median) for diversity across restarts */
+    seed = seed * 1664525u + 1013904223u;
+    size_t first_idx = (seed >> 1) % ns;
+    centers[0] = s[first_idx];
 
     /* D²-weighted sampling for remaining centers */
     double* d2 = (double*)malloc(sizeof(double) * ns);
@@ -1516,26 +1520,30 @@ int UnmixGeneric(const double* data, size_t n, DistFamily family, int k,
 {
     if (!data || n == 0 || k <= 0 || !result) return -1;
 
-    /* For Gaussian with k >= 3: run 2 restarts, keep best LL.
-     * This matches sklearn's n_init strategy and fixes accuracy on
-     * unequal-weight mixtures where init can hit local optima.
-     * 2 restarts is enough to escape bad local optima while keeping
-     * the speed advantage over sklearn (which uses n_init=1 by default).
-     * For k <= 2 or non-Gaussian: single run (init is reliable). */
-    int n_init = (family == DIST_GAUSSIAN && k >= 3) ? 2 : 1;
+    /* Two-phase multi-restart for Gaussian:
+     *   Phase 1: run n_init restarts to LOOSE tolerance (1e-2) — fast exploration
+     *   Phase 2: polish the best result to final tight tolerance
+     * This gives diverse exploration without paying full convergence cost per restart.
+     * k=2: 3 restarts (cheap, reliable); k>=3: 8 restarts to loose, 1 polish.
+     * Non-Gaussian: single run (different init strategies per family). */
+    int n_init = (family == DIST_GAUSSIAN) ? (k <= 2 ? 3 : 8) : 1;
+    double loose_tol = (family == DIST_GAUSSIAN) ? fmax(rtole * 1000.0, 0.01) : rtole;
+    double tight_tol = rtole;
 
     MixtureResult best;
     memset(&best, 0, sizeof(best));
     double best_ll = -1e30;
     int best_rc = -1;
 
+    /* Phase 1: Run all restarts to loose tolerance (fast exploration) */
     for (int restart = 0; restart < n_init; restart++) {
         MixtureResult trial;
         memset(&trial, 0, sizeof(trial));
-        unsigned seed = 0xCAFE + restart * 7919u + (unsigned)k;
-        int rc = UnmixGenericSingle(data, n, family, k, maxiter, rtole,
-                                     verbose && restart == 0 ? 1 : 0,
-                                     &trial, seed);
+        unsigned seed = 0xCAFE + restart * 7919u + (unsigned)k + (unsigned)(n & 0xFFFF);
+        /* Cap iterations for loose phase — don't waste time on bad starts */
+        int loose_maxiter = maxiter < 60 ? maxiter : 60;
+        int rc = UnmixGenericSingle(data, n, family, k, loose_maxiter, loose_tol,
+                                     0, &trial, seed);
         if (rc == 0 && trial.loglikelihood > best_ll) {
             if (best.mixing_weights) ReleaseMixtureResult(&best);
             best = trial;
@@ -1546,16 +1554,41 @@ int UnmixGeneric(const double* data, size_t n, DistFamily family, int k,
         }
     }
 
-    if (best_rc == 0) {
-        *result = best;
-        if (n_init > 1 && verbose) {
-            printf("  [%s] Best of %d restarts: LL=%.4f\n",
-                   GetDistName(family), n_init, best_ll);
-        }
-        return 0;
+    if (best_rc != 0) {
+        /* All restarts failed — fall back to single run */
+        return UnmixGenericSingle(data, n, family, k, maxiter, tight_tol, verbose, result, 0xCAFE);
     }
-    /* All restarts failed — fall back to single run */
-    return UnmixGenericSingle(data, n, family, k, maxiter, rtole, verbose, result, 0xCAFE);
+
+    /* Phase 2: Polish best result to tight tolerance */
+    if (loose_tol > tight_tol) {
+        /* Re-run EM starting from best parameters, full maxiter, tight tolerance */
+        MixtureResult polished;
+        memset(&polished, 0, sizeof(polished));
+        polished.family = family;
+        polished.num_components = k;
+        polished.mixing_weights = (double*)malloc(sizeof(double) * k);
+        polished.params = (DistParams*)malloc(sizeof(DistParams) * k);
+        /* Copy best params as starting point */
+        memcpy(polished.mixing_weights, best.mixing_weights, sizeof(double) * k);
+        memcpy(polished.params, best.params, sizeof(DistParams) * k);
+
+        /* Run from best params: pass seed=0 to skip init (use existing params) */
+        int rc = UnmixGenericSingle(data, n, family, k, maxiter, tight_tol,
+                                     verbose, &polished, 0);
+        if (rc == 0 && polished.loglikelihood >= best_ll) {
+            ReleaseMixtureResult(&best);
+            best = polished;
+        } else {
+            ReleaseMixtureResult(&polished);
+        }
+    }
+
+    *result = best;
+    if (n_init > 1 && verbose) {
+        printf("  [%s] Best of %d restarts (2-phase): LL=%.4f\n",
+               GetDistName(family), n_init, best.loglikelihood);
+    }
+    return 0;
 }
 
 static int UnmixGenericSingle(const double* data, size_t n, DistFamily family, int k,
@@ -1573,14 +1606,15 @@ static int UnmixGenericSingle(const double* data, size_t n, DistFamily family, i
     result->mixing_weights = (double*)malloc(sizeof(double) * k);
     result->params = (DistParams*)malloc(sizeof(DistParams) * k);
 
-    /* Initialize parameters — pass init_seed through gauss_init via global */
-    df->init_params(data, n, k, result->params);
-    for (int j = 0; j < k; j++) result->mixing_weights[j] = 1.0 / k;
+    /* seed=0 means "polish" mode — skip init, use params already set in result */
+    if (init_seed != 0) {
+        df->init_params(data, n, k, result->params);
+        for (int j = 0; j < k; j++) result->mixing_weights[j] = 1.0 / k;
+    }
 
-    /* Perturb init for restarts > 0: jitter means by ±10% of range.
-     * Only for Gaussian (p[0] = mean). Other families have rate/shape
-     * in p[0] which shouldn't be jittered this way. */
-    if (init_seed != 0xCAFE && family == DIST_GAUSSIAN) {
+    /* Perturb init for restarts > 0: jitter means using the restart seed
+     * for diverse exploration. Only for Gaussian (p[0] = mean). */
+    if (init_seed != 0xCAFE && init_seed != 0 && family == DIST_GAUSSIAN) {
         double mn = data[0], mx = data[0];
         for (size_t i = 1; i < n; i++) { if (data[i]<mn) mn=data[i]; if (data[i]>mx) mx=data[i]; }
         double range = mx - mn;
