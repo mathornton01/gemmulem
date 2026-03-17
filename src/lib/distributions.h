@@ -31,7 +31,13 @@ typedef enum {
     DIST_BETA        = 6,
     DIST_UNIFORM     = 7,
     DIST_PEARSON     = 8,   /* Pearson system — auto-discovers distribution type */
-    DIST_COUNT       = 9   /* sentinel: number of distributions */
+    DIST_STUDENT_T   = 9,   /* Student-t: robust to outliers */
+    DIST_LAPLACE     = 10,  /* Double-exponential: sharp-peaked, heavy-tailed */
+    DIST_CAUCHY      = 11,  /* Cauchy: very heavy tails (undefined mean) */
+    DIST_INVGAUSS    = 12,  /* Inverse-Gaussian: positive right-skewed */
+    DIST_RAYLEIGH    = 13,  /* Rayleigh: positive, wind/signal amplitude */
+    DIST_PARETO      = 14,  /* Pareto: power-law tails */
+    DIST_COUNT       = 15   /* sentinel: number of distributions */
 } DistFamily;
 
 /* Per-component parameters */

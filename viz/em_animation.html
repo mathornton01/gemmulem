@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>GEMMULEM — EM Distribution Refinement</title>
+<style>
+  :root {
+    --bg: #0f1117; --panel: #1a1d27; --border: #2d3149;
+    --text: #e2e8f0; --muted: #718096; --accent: #7c3aed;
+    --good: #10b981; --warn: #f59e0b; --info: #3b82f6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif;
+         min-height: 100vh; padding: 20px; }
+  h1 { text-align: center; font-size: 1.5rem; font-weight: 700;
+       background: linear-gradient(135deg, #7c3aed, #3b82f6);
+       -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 4px; }
+  .subtitle { text-align: center; color: var(--muted); font-size: 0.85rem; margin-bottom: 20px; }
+
+  .layout { display: grid; grid-template-columns: 280px 1fr; gap: 16px; max-width: 1200px; margin: 0 auto; }
+
+  /* sidebar */
+  .sidebar { display: flex; flex-direction: column; gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+  .card h3 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em;
+              color: var(--muted); margin-bottom: 10px; }
+
+  /* scenario picker */
+  .scenario-btn { width: 100%; text-align: left; background: transparent; border: 1px solid var(--border);
+                  color: var(--text); padding: 8px 10px; border-radius: 6px; cursor: pointer;
+                  font-size: 0.82rem; margin-bottom: 5px; transition: all 0.15s; }
+  .scenario-btn:hover { border-color: var(--accent); background: rgba(124,58,237,0.1); }
+  .scenario-btn.active { border-color: var(--accent); background: rgba(124,58,237,0.2);
+                          color: #a78bfa; }
+
+  /* controls */
+  .ctrl-row { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .btn { padding: 7px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 0.82rem;
+         font-weight: 600; transition: all 0.15s; }
+  .btn-primary { background: var(--accent); color: white; }
+  .btn-primary:hover { background: #6d28d9; }
+  .btn-secondary { background: var(--border); color: var(--text); }
+  .btn-secondary:hover { background: #3d425e; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  label.lbl { font-size: 0.78rem; color: var(--muted); display: block; margin-bottom: 3px; }
+  select, input[type=range] { width: 100%; background: var(--bg); color: var(--text);
+                               border: 1px solid var(--border); border-radius: 5px;
+                               padding: 5px 8px; font-size: 0.82rem; }
+  .speed-row { display: flex; align-items: center; gap: 8px; }
+  .speed-row span { font-size: 0.78rem; color: var(--muted); min-width: 30px; }
+
+  /* stats panel */
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .stat { background: var(--bg); border-radius: 6px; padding: 8px; }
+  .stat .val { font-size: 1.1rem; font-weight: 700; color: var(--good); }
+  .stat .key { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
+
+  /* component cards */
+  .comp-cards { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+  .comp-card { border-radius: 6px; padding: 8px 10px; border-left: 3px solid; font-size: 0.78rem; }
+  .comp-card .comp-name { font-weight: 600; margin-bottom: 4px; }
+  .comp-card .comp-params { color: var(--muted); line-height: 1.6; }
+
+  /* main canvas area */
+  .main { display: flex; flex-direction: column; gap: 12px; }
+  .canvas-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+                 padding: 16px; position: relative; }
+  canvas { display: block; width: 100%; border-radius: 6px; background: #0a0c14; }
+  .iter-badge { position: absolute; top: 24px; right: 24px; background: rgba(0,0,0,0.7);
+                border: 1px solid var(--border); border-radius: 20px; padding: 4px 12px;
+                font-size: 0.8rem; font-weight: 600; }
+
+  /* progress bar */
+  .progress-wrap { background: var(--bg); border-radius: 4px; height: 4px; overflow: hidden; }
+  .progress-bar { height: 100%; background: linear-gradient(90deg, var(--accent), var(--info));
+                  transition: width 0.3s; }
+
+  /* LL chart */
+  .ll-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+             padding: 12px 16px; }
+  .ll-wrap h3 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em;
+                color: var(--muted); margin-bottom: 8px; }
+
+  .converged-badge { display: inline-block; padding: 3px 10px; border-radius: 12px;
+                     font-size: 0.75rem; font-weight: 600; margin-left: 8px; }
+  .converged-badge.yes { background: rgba(16,185,129,0.2); color: var(--good); }
+  .converged-badge.no  { background: rgba(245,158,11,0.2); color: var(--warn); }
+</style>
+</head>
+<body>
+<h1>GEMMULEM — EM Distribution Refinement</h1>
+<p class="subtitle">Watch the algorithm discover mixture components and distribution shapes from raw data</p>
+
+<div class="layout">
+  <!-- sidebar -->
+  <div class="sidebar">
+    <div class="card">
+      <h3>Scenario</h3>
+      <div id="scenario-list"></div>
+    </div>
+
+    <div class="card">
+      <h3>Controls</h3>
+      <div class="ctrl-row">
+        <button class="btn btn-primary" id="btnPlay">▶ Play</button>
+        <button class="btn btn-secondary" id="btnStep">Step</button>
+        <button class="btn btn-secondary" id="btnReset">↺ Reset</button>
+      </div>
+      <div class="ctrl-row">
+        <button class="btn btn-secondary" id="btnSkip" style="flex:1">⚡ Converge</button>
+      </div>
+      <div style="margin-top:8px">
+        <label class="lbl">Distribution Family</label>
+        <select id="selFamily">
+          <option value="auto">Auto (BIC selection)</option>
+          <option value="gaussian" selected>Gaussian</option>
+          <option value="student_t">Student-t (robust)</option>
+          <option value="laplace">Laplace</option>
+          <option value="gamma">Gamma</option>
+          <option value="lognormal">Log-Normal</option>
+          <option value="pearson">Pearson (adaptive)</option>
+        </select>
+      </div>
+      <div style="margin-top:8px">
+        <label class="lbl">Components (k)</label>
+        <select id="selK">
+          <option value="1">1</option>
+          <option value="2" selected>2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+        </select>
+      </div>
+      <div style="margin-top:8px">
+        <label class="lbl">Animation Speed</label>
+        <div class="speed-row">
+          <span>Slow</span>
+          <input type="range" id="slSpeed" min="1" max="10" value="4">
+          <span>Fast</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="statsCard">
+      <h3>Status</h3>
+      <div class="stat-grid" id="statGrid">
+        <div class="stat"><div class="val" id="statIter">0</div><div class="key">Iterations</div></div>
+        <div class="stat"><div class="val" id="statLL">—</div><div class="key">Log-Likelihood</div></div>
+        <div class="stat"><div class="val" id="statBIC">—</div><div class="key">BIC</div></div>
+        <div class="stat"><div class="val" id="statDelta">—</div><div class="key">ΔLL</div></div>
+      </div>
+      <div style="margin-top:10px">
+        <div style="font-size:0.72rem;color:var(--muted);margin-bottom:4px">Progress</div>
+        <div class="progress-wrap"><div class="progress-bar" id="progBar" style="width:0%"></div></div>
+      </div>
+    </div>
+
+    <div class="card" id="compCard">
+      <h3>Components <span id="convBadge" class="converged-badge no">Running</span></h3>
+      <div class="comp-cards" id="compCards"></div>
+    </div>
+  </div>
+
+  <!-- main -->
+  <div class="main">
+    <div class="canvas-wrap">
+      <canvas id="mainCanvas" height="420"></canvas>
+      <div class="iter-badge">Iteration <span id="iterLabel">0</span></div>
+    </div>
+    <div class="ll-wrap">
+      <h3>Log-Likelihood Trace</h3>
+      <canvas id="llCanvas" height="100"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════════════
+// Pure-JS EM engine (Gaussian mixture; Laplace; Student-t; Gamma)
+// ════════════════════════════════════════════════════════════════════
+
+const COMP_COLORS = ["#7c3aed","#3b82f6","#10b981","#f59e0b"];
+
+// Distributions
+const Distributions = {
+  gaussian: {
+    name: "Gaussian",
+    logpdf: (x, p) => { const [mu,v] = p; return -0.5*Math.log(2*Math.PI*v) - 0.5*(x-mu)**2/v; },
+    estimate: (xs, ws) => {
+      const sw = ws.reduce((a,b)=>a+b,0);
+      const mu = xs.reduce((s,x,i)=>s+ws[i]*x,0)/sw;
+      const v  = Math.max(xs.reduce((s,x,i)=>s+ws[i]*(x-mu)**2,0)/sw, 1e-6);
+      return [mu, v];
+    },
+    init: (xs, k) => {
+      const s = [...xs].sort((a,b)=>a-b);
+      return Array.from({length:k},(_,j)=>{
+        const qi = Math.floor((j+0.5)*s.length/k);
+        const mu = s[qi];
+        const gv = xs.reduce((a,x)=>a+(x-xs.reduce((a,b)=>a+b,0)/xs.length)**2,0)/xs.length;
+        return [mu, gv/k];
+      });
+    },
+    label: p => `μ=${p[0].toFixed(2)}, σ=${Math.sqrt(p[1]).toFixed(2)}`
+  },
+  student_t: {
+    name: "Student-t",
+    logpdf: (x, p) => {
+      const [mu, sig, df] = p;
+      const z = (x-mu)/sig;
+      const lgdf = logGamma((df+1)/2) - logGamma(df/2) - 0.5*Math.log(df*Math.PI) - Math.log(sig);
+      return lgdf - 0.5*(df+1)*Math.log(1 + z*z/df);
+    },
+    estimate: (xs, ws) => {
+      const sw = ws.reduce((a,b)=>a+b,0);
+      const mu = xs.reduce((s,x,i)=>s+ws[i]*x,0)/sw;
+      const v  = Math.max(xs.reduce((s,x,i)=>s+ws[i]*(x-mu)**2,0)/sw, 1e-6);
+      const m4 = xs.reduce((s,x,i)=>s+ws[i]*(x-mu)**4,0)/sw;
+      const kurt = m4/(v*v) - 3;
+      const df = kurt > 0.1 ? Math.min(200, Math.max(1, 4 + 6/kurt)) : 50;
+      const sig = Math.max(1e-6, Math.sqrt(v*(df-2)/Math.max(df,3)));
+      return [mu, sig, df];
+    },
+    init: (xs, k) => {
+      const s = [...xs].sort((a,b)=>a-b);
+      const gv = xs.reduce((a,x)=>a+(x-xs.reduce((a,b)=>a+b,0)/xs.length)**2,0)/xs.length;
+      return Array.from({length:k},(_,j)=>{
+        const qi = Math.floor((j+0.5)*s.length/k);
+        return [s[qi], Math.sqrt(gv/k), 5];
+      });
+    },
+    label: p => `μ=${p[0].toFixed(2)}, df=${p[2].toFixed(1)}`
+  },
+  laplace: {
+    name: "Laplace",
+    logpdf: (x, p) => { const [mu, b] = p; return -Math.log(2*b) - Math.abs(x-mu)/b; },
+    estimate: (xs, ws) => {
+      const sw = ws.reduce((a,b)=>a+b,0);
+      const mu = xs.reduce((s,x,i)=>s+ws[i]*x,0)/sw;
+      const b  = Math.max(1e-6, xs.reduce((s,x,i)=>s+ws[i]*Math.abs(x-mu),0)/sw);
+      return [mu, b];
+    },
+    init: (xs, k) => {
+      const s = [...xs].sort((a,b)=>a-b);
+      const gv = xs.reduce((a,x)=>a+(x-xs.reduce((a,b)=>a+b,0)/xs.length)**2,0)/xs.length;
+      return Array.from({length:k},(_,j)=>{
+        const qi = Math.floor((j+0.5)*s.length/k);
+        return [s[qi], Math.sqrt(gv/k/2)];
+      });
+    },
+    label: p => `μ=${p[0].toFixed(2)}, b=${p[1].toFixed(2)}`
+  },
+  gamma: {
+    name: "Gamma",
+    logpdf: (x, p) => {
+      if (x <= 0) return -1e30;
+      const [a, b] = p;
+      return a*Math.log(b) + (a-1)*Math.log(x) - b*x - logGamma(a);
+    },
+    estimate: (xs, ws) => {
+      const sw = ws.reduce((s,w)=>s+w,0);
+      const mu = Math.max(1e-6, xs.reduce((s,x,i)=>s+ws[i]*Math.max(x,1e-6),0)/sw);
+      const v  = Math.max(1e-6, xs.reduce((s,x,i)=>s+ws[i]*(Math.max(x,1e-6)-mu)**2,0)/sw);
+      return [Math.max(0.01, mu*mu/v), Math.max(0.01, mu/v)];
+    },
+    init: (xs, k) => {
+      const pos = xs.filter(x=>x>0);
+      const m = pos.reduce((a,b)=>a+b,0)/pos.length || 1;
+      const v = pos.reduce((a,x)=>a+(x-m)**2,0)/pos.length || 1;
+      return Array.from({length:k},(_,j)=>{
+        const mi = m*(0.5+j)/k;
+        return [Math.max(0.01,mi*mi/v), Math.max(0.01,mi/v)];
+      });
+    },
+    label: p => `α=${p[0].toFixed(2)}, β=${p[1].toFixed(2)}`
+  }
+};
+
+// Lanczos approx of log-gamma
+function logGamma(z) {
+  const g = 7, c = [0.99999999999980993,676.5203681218851,-1259.1392167224028,
+    771.32342877765313,-176.61502916214059,12.507343278686905,-0.13857109526572012,
+    9.9843695780195716e-6,1.5056327351493116e-7];
+  if (z < 0.5) return Math.log(Math.PI/Math.sin(Math.PI*z)) - logGamma(1-z);
+  z -= 1;
+  let x = c[0];
+  for (let i=1;i<g+2;i++) x += c[i]/(z+i);
+  const t = z+g+0.5;
+  return 0.5*Math.log(2*Math.PI) + (z+0.5)*Math.log(t) - t + Math.log(x);
+}
+
+// ════════════════════════════════════════════════════════════════════
+// EM State
+// ════════════════════════════════════════════════════════════════════
+class EMState {
+  constructor(data, k, family) {
+    this.data = data;
+    this.k = k;
+    this.dist = Distributions[family] || Distributions.gaussian;
+    this.familyName = family;
+    this.n = data.length;
+    this.weights = Array(k).fill(1/k);
+    this.params = this.dist.init(data, k);
+    this.resp = Array.from({length:k}, ()=>new Float64Array(data.length).fill(1/k));
+    this.iter = 0;
+    this.ll = -Infinity;
+    this.llHistory = [];
+    this.converged = false;
+    this.maxIter = 300;
+  }
+
+  step() {
+    if (this.converged || this.iter >= this.maxIter) return;
+
+    // E-step
+    let ll = 0;
+    const FLOOR = 1e-300;
+    for (let i=0; i<this.n; i++) {
+      let total = 0;
+      const pv = Array(this.k);
+      for (let j=0; j<this.k; j++) {
+        let p = this.weights[j] * Math.exp(this.dist.logpdf(this.data[i], this.params[j]));
+        if (!isFinite(p) || p < FLOOR) p = FLOOR;
+        pv[j] = p; total += p;
+      }
+      for (let j=0; j<this.k; j++) this.resp[j][i] = pv[j]/total;
+      ll += Math.log(total);
+    }
+
+    // M-step
+    const prevLL = this.ll;
+    this.ll = ll;
+    this.llHistory.push(ll);
+
+    for (let j=0; j<this.k; j++) {
+      const ws = Array.from(this.resp[j]);
+      const nj = ws.reduce((a,b)=>a+b,0);
+      this.weights[j] = Math.max(1e-10, nj/this.n);
+
+      // Winsorized data for robust higher moments
+      this.params[j] = this.dist.estimate(this.data, ws);
+    }
+    // Renormalize
+    const wsum = this.weights.reduce((a,b)=>a+b,0);
+    this.weights = this.weights.map(w=>w/wsum);
+
+    this.iter++;
+    const delta = ll - prevLL;
+    if (this.iter > 2 && Math.abs(delta) < 1e-5) this.converged = true;
+    return delta;
+  }
+
+  runToConverge() {
+    while (!this.converged && this.iter < this.maxIter) this.step();
+  }
+
+  bic() {
+    const nfree = this.k * (this.params[0].length + 1) - 1;
+    return -2*this.ll + nfree*Math.log(this.n);
+  }
+
+  pdf(x) {
+    return this.weights.reduce((s,w,j)=>s + w*Math.exp(this.dist.logpdf(x,this.params[j])), 0);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Scenarios
+// ════════════════════════════════════════════════════════════════════
+function randNorm(mu=0, sd=1) {
+  const u = Math.random(), v = Math.random();
+  return mu + sd * Math.sqrt(-2*Math.log(u+1e-10)) * Math.cos(2*Math.PI*v);
+}
+function randGamma(shape, scale) {
+  // Marsaglia-Tsang fast gamma
+  if (shape < 1) return randGamma(1+shape, scale) * Math.pow(Math.random(), 1/shape);
+  const d = shape - 1/3, c = 1/Math.sqrt(9*d);
+  while (true) {
+    let x, v;
+    do { x = randNorm(); v = 1 + c*x; } while (v <= 0);
+    v = v*v*v;
+    const u = Math.random();
+    if (u < 1 - 0.0331*(x*x)*(x*x)) return d*v*scale;
+    if (Math.log(u) < 0.5*x*x + d*(1-v+Math.log(v))) return d*v*scale;
+  }
+}
+function randExp(rate=1) { return -Math.log(Math.random()+1e-10)/rate; }
+function randLaplace(mu, b) { const u=Math.random()-0.5; return mu - b*Math.sign(u)*Math.log(1-2*Math.abs(u)+1e-10); }
+
+const SCENARIOS = [
+  {
+    name: "Two Gaussians (separated)",
+    desc: "N(-5,1) + N(5,1.5), k=2",
+    family: "gaussian", k: 2,
+    gen: () => [...Array(500)].map(()=>randNorm(-5,1)).concat([...Array(500)].map(()=>randNorm(5,1.5)))
+  },
+  {
+    name: "Three Gaussians",
+    desc: "Overlapping, equal weight",
+    family: "gaussian", k: 3,
+    gen: () => [...Array(400)].map(()=>randNorm(-4,1))
+               .concat([...Array(400)].map(()=>randNorm(0,1)))
+               .concat([...Array(400)].map(()=>randNorm(4,1)))
+  },
+  {
+    name: "Heavy tails (Student-t)",
+    desc: "Outlier-robust fitting",
+    family: "student_t", k: 2,
+    gen: () => {
+      const t3 = ()=>{ const x=randNorm(),y=randNorm(),z=randNorm(); return x/Math.sqrt((y*y+z*z+x*x)/3)*1.5; };
+      return [...Array(500)].map(()=>t3()-4).concat([...Array(500)].map(()=>t3()+4));
+    }
+  },
+  {
+    name: "Laplace mixture",
+    desc: "Sharp-peaked components",
+    family: "laplace", k: 2,
+    gen: () => [...Array(500)].map(()=>randLaplace(-3,0.8))
+               .concat([...Array(500)].map(()=>randLaplace(3,0.8)))
+  },
+  {
+    name: "Gamma mixture",
+    desc: "Positive right-skewed data",
+    family: "gamma", k: 2,
+    gen: () => [...Array(500)].map(()=>randGamma(2,1))
+               .concat([...Array(500)].map(()=>randGamma(8,1.5)))
+  },
+  {
+    name: "Unequal weights",
+    desc: "80%/20% split, Gaussian",
+    family: "gaussian", k: 2,
+    gen: () => [...Array(800)].map(()=>randNorm(0,1))
+               .concat([...Array(200)].map(()=>randNorm(6,0.8)))
+  }
+];
+
+// ════════════════════════════════════════════════════════════════════
+// Rendering
+// ════════════════════════════════════════════════════════════════════
+const mainCanvas = document.getElementById("mainCanvas");
+const llCanvas   = document.getElementById("llCanvas");
+const ctx  = mainCanvas.getContext("2d");
+const llCtx = llCanvas.getContext("2d");
+
+function hexToRgb(hex) {
+  const r = parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16);
+  return `${r},${g},${b}`;
+}
+
+function drawMain(em) {
+  const W = mainCanvas.width, H = mainCanvas.height;
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle = "#0a0c14"; ctx.fillRect(0,0,W,H);
+
+  if (!em) return;
+  const data = em.data;
+
+  // x range
+  const mn = Math.min(...data), mx = Math.max(...data);
+  const pad = (mx-mn)*0.15;
+  const xLo = mn-pad, xHi = mx+pad;
+  const toX = v => (v-xLo)/(xHi-xLo)*W;
+  const BINS = 60;
+  const bw = (xHi-xLo)/BINS;
+
+  // histogram
+  const hist = new Float64Array(BINS);
+  for (const x of data) {
+    const b = Math.floor((x-xLo)/bw);
+    if (b>=0 && b<BINS) hist[b]++;
+  }
+  const histMax = Math.max(...hist);
+  const histH = H * 0.75;
+  const histBase = H * 0.92;
+
+  // soft-color bars by dominant component
+  for (let b=0; b<BINS; b++) {
+    if (!hist[b]) continue;
+    const xc = xLo + (b+0.5)*bw;
+    // find dominant component at bin center
+    let maxR=0, maxJ=0;
+    for (let j=0;j<em.k;j++) {
+      const p = em.weights[j]*Math.exp(em.dist.logpdf(xc, em.params[j]));
+      if (p>maxR) { maxR=p; maxJ=j; }
+    }
+    const col = COMP_COLORS[maxJ % COMP_COLORS.length];
+    ctx.fillStyle = `rgba(${hexToRgb(col)},0.25)`;
+    const bH = (hist[b]/histMax)*histH;
+    ctx.fillRect(toX(xLo+b*bw)+1, histBase-bH, Math.max(1,toX(xLo+(b+1)*bw)-toX(xLo+b*bw)-2), bH);
+  }
+
+  // grid lines
+  ctx.strokeStyle = "rgba(255,255,255,0.06)"; ctx.lineWidth = 1;
+  for (let i=0;i<=4;i++) {
+    const y = H*0.1 + i*(histH*0.9)/4;
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+  }
+
+  // per-component PDFs
+  const steps = 400;
+  const pdfMax = Array.from({length:steps},(_,i)=>{
+    const x = xLo + (i+0.5)*(xHi-xLo)/steps;
+    return em.pdf(x);
+  }).reduce((a,b)=>Math.max(a,b),0);
+  const scaleY = pdfMax > 0 ? histH / pdfMax * (histMax/data.length) / bw * 0.9 : 1;
+
+  for (let j=0;j<em.k;j++) {
+    const col = COMP_COLORS[j % COMP_COLORS.length];
+    ctx.beginPath();
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([]);
+    let first=true;
+    for (let s=0;s<=steps;s++) {
+      const x = xLo + s*(xHi-xLo)/steps;
+      const p = em.weights[j]*Math.exp(em.dist.logpdf(x, em.params[j]));
+      const px = toX(x), py = histBase - p * scaleY * data.length;
+      if (first) { ctx.moveTo(px,py); first=false; } else ctx.lineTo(px,py);
+    }
+    ctx.stroke();
+
+    // fill under curve
+    ctx.beginPath();
+    ctx.fillStyle = `rgba(${hexToRgb(col)},0.08)`;
+    first=true;
+    for (let s=0;s<=steps;s++) {
+      const x = xLo + s*(xHi-xLo)/steps;
+      const p = em.weights[j]*Math.exp(em.dist.logpdf(x, em.params[j]));
+      const px = toX(x), py = histBase - p * scaleY * data.length;
+      if (first) { ctx.moveTo(px,histBase); ctx.lineTo(px,py); first=false; } else ctx.lineTo(px,py);
+    }
+    ctx.lineTo(toX(xHi), histBase); ctx.closePath(); ctx.fill();
+  }
+
+  // total PDF
+  ctx.beginPath(); ctx.strokeStyle = "rgba(255,255,255,0.7)"; ctx.lineWidth = 1.5; ctx.setLineDash([4,3]);
+  let first=true;
+  for (let s=0;s<=steps;s++) {
+    const x = xLo + s*(xHi-xLo)/steps;
+    const p = em.pdf(x);
+    const px = toX(x), py = histBase - p * scaleY * data.length;
+    if (first) { ctx.moveTo(px,py); first=false; } else ctx.lineTo(px,py);
+  }
+  ctx.stroke(); ctx.setLineDash([]);
+
+  // x-axis ticks
+  ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.font = "11px monospace"; ctx.textAlign="center";
+  const tickCount = 8;
+  for (let i=0;i<=tickCount;i++) {
+    const v = xLo + i*(xHi-xLo)/tickCount;
+    ctx.fillText(v.toFixed(1), toX(v), H-4);
+  }
+
+  // component mean markers
+  for (let j=0;j<em.k;j++) {
+    const mu = em.params[j][0];
+    if (mu < xLo || mu > xHi) continue;
+    const col = COMP_COLORS[j%COMP_COLORS.length];
+    ctx.strokeStyle = col; ctx.lineWidth=1.5; ctx.setLineDash([2,2]);
+    ctx.beginPath(); ctx.moveTo(toX(mu),histBase); ctx.lineTo(toX(mu),histBase-histH*0.9); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = col; ctx.fillRect(toX(mu)-3,histBase-6,6,6);
+  }
+}
+
+function drawLL(llHist) {
+  const W = llCanvas.width, H = llCanvas.height;
+  llCtx.clearRect(0,0,W,H);
+  llCtx.fillStyle="#0a0c14"; llCtx.fillRect(0,0,W,H);
+  if (llHist.length < 2) return;
+
+  // skip first (often wildly negative)
+  const hist = llHist.slice(1);
+  const mn = Math.min(...hist), mx = Math.max(...hist);
+  const range = mx-mn || 1;
+  const pad = range*0.1;
+  const toY = v => H - (v-mn+pad)/(range+2*pad)*H;
+  const toXp = i => i/(hist.length-1)*W;
+
+  // gradient fill
+  const grad = llCtx.createLinearGradient(0,0,W,0);
+  grad.addColorStop(0,"rgba(124,58,237,0.3)"); grad.addColorStop(1,"rgba(59,130,246,0.3)");
+  llCtx.beginPath();
+  llCtx.moveTo(0, H);
+  for (let i=0;i<hist.length;i++) llCtx.lineTo(toXp(i), toY(hist[i]));
+  llCtx.lineTo(W,H); llCtx.closePath();
+  llCtx.fillStyle = grad; llCtx.fill();
+
+  // line
+  llCtx.beginPath(); llCtx.strokeStyle="#a78bfa"; llCtx.lineWidth=2;
+  for (let i=0;i<hist.length;i++) {
+    if (i===0) llCtx.moveTo(toXp(i), toY(hist[i]));
+    else llCtx.lineTo(toXp(i), toY(hist[i]));
+  }
+  llCtx.stroke();
+
+  // current point
+  const last = hist.length-1;
+  llCtx.fillStyle="#7c3aed"; llCtx.beginPath();
+  llCtx.arc(toXp(last), toY(hist[last]), 4, 0, 2*Math.PI); llCtx.fill();
+
+  // label
+  llCtx.fillStyle="rgba(255,255,255,0.4)"; llCtx.font="10px monospace"; llCtx.textAlign="right";
+  llCtx.fillText(`LL=${hist[last].toFixed(1)}`, W-4, H-4);
+}
+
+function updateSidebar(em) {
+  if (!em) return;
+  document.getElementById("statIter").textContent = em.iter;
+  document.getElementById("statLL").textContent = isFinite(em.ll) ? em.ll.toFixed(1) : "—";
+  document.getElementById("statBIC").textContent = em.iter>0 ? em.bic().toFixed(1) : "—";
+  const delta = em.llHistory.length>1 ? em.ll-em.llHistory[em.llHistory.length-2] : 0;
+  document.getElementById("statDelta").textContent = em.iter>1 ? delta.toFixed(4) : "—";
+  document.getElementById("progBar").style.width = Math.min(100, em.iter/em.maxIter*100)+"%";
+  document.getElementById("iterLabel").textContent = em.iter;
+
+  const badge = document.getElementById("convBadge");
+  if (em.converged) {
+    badge.textContent = "Converged ✓"; badge.className="converged-badge yes";
+  } else {
+    badge.textContent = "Running"; badge.className="converged-badge no";
+  }
+
+  const cards = document.getElementById("compCards");
+  cards.innerHTML = em.params.map((p,j)=>{
+    const col = COMP_COLORS[j%COMP_COLORS.length];
+    const w = (em.weights[j]*100).toFixed(1);
+    return `<div class="comp-card" style="border-color:${col};background:rgba(${hexToRgb(col)},0.08)">
+      <div class="comp-name" style="color:${col}">Component ${j+1} — ${w}%</div>
+      <div class="comp-params">${em.dist.label(p)}</div>
+    </div>`;
+  }).join("");
+}
+
+// ════════════════════════════════════════════════════════════════════
+// App state
+// ════════════════════════════════════════════════════════════════════
+let em = null, animTimer = null, activeScenario = 0;
+
+function resize() {
+  mainCanvas.width = mainCanvas.offsetWidth;
+  llCanvas.width   = llCanvas.offsetWidth;
+}
+
+function buildScenarioList() {
+  const div = document.getElementById("scenario-list");
+  SCENARIOS.forEach((s,i)=>{
+    const btn = document.createElement("button");
+    btn.className = "scenario-btn" + (i===0?" active":"");
+    btn.innerHTML = `<strong>${s.name}</strong><br><span style="color:var(--muted);font-size:0.75rem">${s.desc}</span>`;
+    btn.onclick = ()=>{
+      document.querySelectorAll(".scenario-btn").forEach(b=>b.classList.remove("active"));
+      btn.classList.add("active");
+      activeScenario = i;
+      // set family/k dropdowns
+      document.getElementById("selFamily").value = s.family;
+      document.getElementById("selK").value = s.k;
+      resetEM();
+    };
+    div.appendChild(btn);
+  });
+}
+
+function resetEM() {
+  stopAnim();
+  const s = SCENARIOS[activeScenario];
+  const k = parseInt(document.getElementById("selK").value);
+  const family = document.getElementById("selFamily").value;
+  const data = s.gen();
+  em = new EMState(data, k, family);
+  drawMain(em);
+  drawLL(em.llHistory);
+  updateSidebar(em);
+}
+
+function doStep() {
+  if (!em || em.converged) return;
+  em.step();
+  drawMain(em);
+  drawLL(em.llHistory);
+  updateSidebar(em);
+}
+
+function startAnim() {
+  if (animTimer) return;
+  const speedVal = parseInt(document.getElementById("slSpeed").value);
+  const delay = Math.max(50, 800 - speedVal*70);
+  document.getElementById("btnPlay").textContent = "⏸ Pause";
+  animTimer = setInterval(()=>{
+    if (!em || em.converged) { stopAnim(); return; }
+    doStep();
+  }, delay);
+}
+function stopAnim() {
+  clearInterval(animTimer); animTimer = null;
+  document.getElementById("btnPlay").textContent = "▶ Play";
+}
+function togglePlay() { animTimer ? stopAnim() : startAnim(); }
+
+function skipToConverge() {
+  stopAnim();
+  if (!em) return;
+  em.runToConverge();
+  drawMain(em);
+  drawLL(em.llHistory);
+  updateSidebar(em);
+}
+
+// Wiring
+document.getElementById("btnPlay").onclick  = togglePlay;
+document.getElementById("btnStep").onclick  = doStep;
+document.getElementById("btnReset").onclick = resetEM;
+document.getElementById("btnSkip").onclick  = skipToConverge;
+document.getElementById("selFamily").onchange = resetEM;
+document.getElementById("selK").onchange = resetEM;
+document.getElementById("slSpeed").oninput = ()=>{
+  if (animTimer) { stopAnim(); startAnim(); }
+};
+
+window.addEventListener("resize", ()=>{ resize(); if(em) drawMain(em); });
+resize();
+buildScenarioList();
+resetEM();
+</script>
+</body>
+</html>

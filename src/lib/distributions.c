@@ -170,16 +170,33 @@ static void gamma_estimate(const double* x, const double* w, size_t n, DistParam
     out->p[0] = alpha; out->p[1] = beta; out->nparams = 2;
 }
 static void gamma_init(const double* x, size_t n, int k, DistParams* out) {
-    double mean = 0; for (size_t i = 0; i < n; i++) mean += x[i]; mean /= n;
-    double var = 0; for (size_t i = 0; i < n; i++) var += (x[i]-mean)*(x[i]-mean); var /= n;
-    if (mean < 1e-10) mean = 1.0; if (var < 1e-10) var = 1.0;
+    /* Sort a sample to get quantile-based component initialization.
+     * Using global variance with multi-modal data gives near-zero alpha. */
+    size_t ns = (n > 1000) ? 1000 : n;
+    double* s = (double*)malloc(sizeof(double)*ns);
+    for (size_t i = 0; i < ns; i++) s[i] = x[i*n/ns];
+    /* Simple insertion sort for small ns */
+    for (size_t i = 1; i < ns; i++) {
+        double tmp = s[i]; size_t j = i;
+        while (j > 0 && s[j-1] > tmp) { s[j] = s[j-1]; j--; }
+        s[j] = tmp;
+    }
     for (int j = 0; j < k; j++) {
-        double m = mean * (0.5 + j) / k;
-        if (m < 1e-10) m = 1e-10;
-        double a = m*m / var; if (a < 0.01) a = 0.01;
-        double b = m / var; if (b < 0.01) b = 0.01;
+        /* Local quantile range for component j */
+        size_t lo = (size_t)(j*ns/k), hi = (size_t)((j+1)*ns/k);
+        if (hi >= ns) hi = ns-1;
+        if (hi <= lo) hi = lo+1;
+        double lm = 0, lm2 = 0; size_t cnt = hi - lo;
+        for (size_t i = lo; i < hi; i++) { lm += s[i]; lm2 += s[i]*s[i]; }
+        lm /= cnt; lm2 /= cnt;
+        double lv = lm2 - lm*lm;
+        if (lm < 1e-6) lm = 1e-6;
+        if (lv < lm*0.01) lv = lm*0.1;  /* minimum CV of 31% */
+        double a = lm*lm/lv; if (a < 0.1) a = 0.1;
+        double b = lm/lv;    if (b < 0.01) b = 0.01;
         out[j].p[0] = a; out[j].p[1] = b; out[j].nparams = 2;
     }
+    free(s);
 }
 static int gamma_valid(double x) { return x > 0; }
 
@@ -366,6 +383,259 @@ static int uniform_valid(double x) { return 1; }
 
 
 /* ====================================================================
+ * STUDENT-T: params = {mu (location), sigma (scale), df (degrees of freedom)}
+ *   pdf = Gamma((df+1)/2) / (sigma*sqrt(df*pi)*Gamma(df/2)) * (1 + ((x-mu)/sigma)^2/df)^(-(df+1)/2)
+ * ==================================================================== */
+static double studt_logpdf(double x, const DistParams* p) {
+    double mu = p->p[0], sigma = p->p[1], df = p->p[2];
+    if (sigma <= 0) sigma = 1e-10;
+    if (df <= 0) df = 1;
+    double z = (x - mu) / sigma;
+    return lgamma(0.5*(df+1)) - lgamma(0.5*df) - 0.5*log(df*M_PI) - log(sigma)
+           - 0.5*(df+1)*log(1 + z*z/df);
+}
+static double studt_pdf(double x, const DistParams* p) {
+    return exp(studt_logpdf(x, p));
+}
+static void studt_estimate(const double* x, const double* w, size_t n, DistParams* out) {
+    /* IRLS-style: estimate mu, sigma from weighted data; df via kurtosis */
+    double mu = wt_mean(x, w, n);
+    double var = wt_var(x, w, n, mu);
+    if (var < 1e-10) var = 1e-10;
+    /* Excess kurtosis for t(df) = 6/(df-4) for df>4, so df = 4 + 6/kurtosis */
+    double sw = wt_sum(w, n);
+    double m4 = 0;
+    for (size_t i = 0; i < n; i++) {
+        double d = x[i] - mu;
+        m4 += w[i] * d * d * d * d;
+    }
+    m4 /= sw;
+    double kurt = m4 / (var * var) - 3.0;  /* excess kurtosis */
+    double df;
+    if (kurt > 0.1) {
+        df = 4.0 + 6.0 / kurt;
+    } else {
+        df = 100;  /* near-Normal */
+    }
+    if (df < 1) df = 1; if (df > 200) df = 200;
+    double sigma = sqrt(var * (df - 2) / df);
+    if (df <= 2) sigma = sqrt(var);
+    if (sigma < 1e-10) sigma = 1e-10;
+    out->p[0] = mu; out->p[1] = sigma; out->p[2] = df; out->nparams = 3;
+}
+static void studt_init(const double* x, size_t n, int k, DistParams* out) {
+    double mn = x[0], mx = x[0];
+    for (size_t i = 1; i < n; i++) { if (x[i]<mn) mn=x[i]; if (x[i]>mx) mx=x[i]; }
+    double gmu = 0; for (size_t i = 0; i < n; i++) gmu += x[i]; gmu /= n;
+    double gvar = 0; for (size_t i = 0; i < n; i++) gvar += (x[i]-gmu)*(x[i]-gmu); gvar /= n;
+    if (gvar < 1e-10) gvar = 1.0;
+    for (int j = 0; j < k; j++) {
+        out[j].p[0] = mn + (mx-mn)*(j+0.5)/k;  /* mu */
+        out[j].p[1] = sqrt(gvar);                /* sigma */
+        out[j].p[2] = 5.0;                       /* df */
+        out[j].nparams = 3;
+    }
+}
+static int studt_valid(double x) { return 1; }
+
+/* ====================================================================
+ * LAPLACE: params = {mu (location), b (scale)}
+ *   pdf = (1/(2b)) * exp(-|x-mu|/b)
+ * ==================================================================== */
+static double laplace_logpdf(double x, const DistParams* p) {
+    double mu = p->p[0], b = p->p[1];
+    if (b <= 0) b = 1e-10;
+    return -log(2*b) - fabs(x - mu) / b;
+}
+static double laplace_pdf(double x, const DistParams* p) {
+    return exp(laplace_logpdf(x, p));
+}
+static void laplace_estimate(const double* x, const double* w, size_t n, DistParams* out) {
+    /* Weighted MLE: mu = weighted median, b = weighted mean absolute deviation
+     * For simplicity, use weighted mean as approximate location */
+    double mu = wt_mean(x, w, n);
+    double sw = wt_sum(w, n);
+    double mad = 0;
+    for (size_t i = 0; i < n; i++) mad += w[i] * fabs(x[i] - mu);
+    double b = mad / sw;
+    if (b < 1e-10) b = 1e-10;
+    out->p[0] = mu; out->p[1] = b; out->nparams = 2;
+}
+static void laplace_init(const double* x, size_t n, int k, DistParams* out) {
+    double mn = x[0], mx = x[0];
+    for (size_t i = 1; i < n; i++) { if (x[i]<mn) mn=x[i]; if (x[i]>mx) mx=x[i]; }
+    double gmu = 0; for (size_t i = 0; i < n; i++) gmu += x[i]; gmu /= n;
+    double gvar = 0; for (size_t i = 0; i < n; i++) gvar += (x[i]-gmu)*(x[i]-gmu); gvar /= n;
+    double b = sqrt(gvar / 2.0);  /* Laplace variance = 2b^2 */
+    if (b < 1e-10) b = 1.0;
+    for (int j = 0; j < k; j++) {
+        out[j].p[0] = mn + (mx-mn)*(j+0.5)/k;
+        out[j].p[1] = b;
+        out[j].nparams = 2;
+    }
+}
+static int laplace_valid(double x) { return 1; }
+
+/* ====================================================================
+ * CAUCHY: params = {x0 (location), gamma (scale)}
+ *   pdf = 1 / (pi*gamma*(1 + ((x-x0)/gamma)^2))
+ * ==================================================================== */
+static double cauchy_logpdf(double x, const DistParams* p) {
+    double x0 = p->p[0], gam = p->p[1];
+    if (gam <= 0) gam = 1e-10;
+    double z = (x - x0) / gam;
+    return -log(M_PI * gam) - log(1 + z*z);
+}
+static double cauchy_pdf(double x, const DistParams* p) {
+    return exp(cauchy_logpdf(x, p));
+}
+static void cauchy_estimate(const double* x, const double* w, size_t n, DistParams* out) {
+    /* Use weighted median for location, weighted MAD for scale */
+    /* Approximate: weighted mean and IQR-based scale */
+    double mu = wt_mean(x, w, n);  /* biased but ok for EM starting */
+    double sw = wt_sum(w, n);
+    double mad = 0;
+    for (size_t i = 0; i < n; i++) mad += w[i] * fabs(x[i] - mu);
+    double gam = mad / sw;  /* MAD ≈ gamma for Cauchy */
+    if (gam < 1e-10) gam = 1e-10;
+    out->p[0] = mu; out->p[1] = gam; out->nparams = 2;
+}
+static void cauchy_init(const double* x, size_t n, int k, DistParams* out) {
+    double mn = x[0], mx = x[0];
+    for (size_t i = 1; i < n; i++) { if (x[i]<mn) mn=x[i]; if (x[i]>mx) mx=x[i]; }
+    double range = mx - mn; if (range < 1e-10) range = 1.0;
+    for (int j = 0; j < k; j++) {
+        out[j].p[0] = mn + range*(j+0.5)/k;
+        out[j].p[1] = range / (2.0 * k);
+        out[j].nparams = 2;
+    }
+}
+static int cauchy_valid(double x) { return 1; }
+
+/* ====================================================================
+ * INVERSE-GAUSSIAN: params = {mu (mean), lambda (shape)}
+ *   pdf = sqrt(lambda/(2*pi*x^3)) * exp(-lambda*(x-mu)^2 / (2*mu^2*x))
+ * ==================================================================== */
+static double invgauss_logpdf(double x, const DistParams* p) {
+    double mu = p->p[0], lam = p->p[1];
+    if (x <= 0 || mu <= 0 || lam <= 0) return -1e30;
+    return 0.5*(log(lam) - log(2*M_PI) - 3*log(x)) - lam*(x-mu)*(x-mu) / (2*mu*mu*x);
+}
+static double invgauss_pdf(double x, const DistParams* p) {
+    double lp = invgauss_logpdf(x, p);
+    return lp > -700 ? exp(lp) : 0;
+}
+static void invgauss_estimate(const double* x, const double* w, size_t n, DistParams* out) {
+    double mu = wt_mean(x, w, n);
+    if (mu < 1e-10) mu = 1e-10;
+    /* MLE for lambda: 1/lambda = (1/n) * sum(1/xi - 1/mu) */
+    double sw = wt_sum(w, n);
+    double inv_sum = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (x[i] > 1e-10) inv_sum += w[i] * (1.0/x[i] - 1.0/mu);
+    }
+    double inv_lam = inv_sum / sw;
+    double lam = (inv_lam > 1e-10) ? 1.0 / inv_lam : mu * mu;
+    if (lam < 1e-10) lam = 1e-10;
+    out->p[0] = mu; out->p[1] = lam; out->nparams = 2;
+}
+static void invgauss_init(const double* x, size_t n, int k, DistParams* out) {
+    double mean = 0; int cnt = 0;
+    for (size_t i = 0; i < n; i++) { if (x[i]>0) { mean += x[i]; cnt++; } }
+    mean = cnt > 0 ? mean/cnt : 1.0;
+    double var = 0;
+    for (size_t i = 0; i < n; i++) { if (x[i]>0) var += (x[i]-mean)*(x[i]-mean); }
+    var = cnt > 0 ? var/cnt : 1.0;
+    if (var < 1e-10) var = 1.0;
+    for (int j = 0; j < k; j++) {
+        double m = mean * (0.5 + j) / k;
+        if (m < 1e-10) m = 1e-10;
+        out[j].p[0] = m;
+        out[j].p[1] = m*m*m / var;  /* lambda = mu^3 / var for InvGauss */
+        out[j].nparams = 2;
+    }
+}
+static int invgauss_valid(double x) { return x > 0; }
+
+/* ====================================================================
+ * RAYLEIGH: params = {sigma}
+ *   pdf = (x/sigma^2) * exp(-x^2 / (2*sigma^2))
+ * ==================================================================== */
+static double rayleigh_logpdf(double x, const DistParams* p) {
+    double sig = p->p[0];
+    if (x < 0 || sig <= 0) return -1e30;
+    if (x == 0) return -1e30;
+    return log(x) - 2*log(sig) - x*x / (2*sig*sig);
+}
+static double rayleigh_pdf(double x, const DistParams* p) {
+    return exp(rayleigh_logpdf(x, p));
+}
+static void rayleigh_estimate(const double* x, const double* w, size_t n, DistParams* out) {
+    /* MLE: sigma^2 = sum(w_i * x_i^2) / (2 * sum(w_i)) */
+    double sw = 0, sx2 = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (x[i] >= 0) { sw += w[i]; sx2 += w[i] * x[i] * x[i]; }
+    }
+    double sig2 = sw > 0 ? sx2 / (2 * sw) : 1.0;
+    if (sig2 < 1e-10) sig2 = 1e-10;
+    out->p[0] = sqrt(sig2); out->nparams = 1;
+}
+static void rayleigh_init(const double* x, size_t n, int k, DistParams* out) {
+    double mean = 0; for (size_t i = 0; i < n; i++) mean += x[i]; mean /= n;
+    if (mean < 1e-10) mean = 1.0;
+    for (int j = 0; j < k; j++) {
+        /* sigma ≈ mean / sqrt(pi/2) for Rayleigh */
+        double sig = mean * (0.5 + j) / k / 1.2533;
+        if (sig < 1e-10) sig = 1e-10;
+        out[j].p[0] = sig; out[j].nparams = 1;
+    }
+}
+static int rayleigh_valid(double x) { return x >= 0; }
+
+/* ====================================================================
+ * PARETO: params = {alpha (shape), x_m (scale/minimum)}
+ *   pdf = alpha * x_m^alpha / x^(alpha+1)  for x >= x_m
+ * ==================================================================== */
+static double pareto_logpdf(double x, const DistParams* p) {
+    double alpha = p->p[0], xm = p->p[1];
+    if (x < xm || alpha <= 0 || xm <= 0) return -1e30;
+    return log(alpha) + alpha*log(xm) - (alpha+1)*log(x);
+}
+static double pareto_pdf(double x, const DistParams* p) {
+    return exp(pareto_logpdf(x, p));
+}
+static void pareto_estimate(const double* x, const double* w, size_t n, DistParams* out) {
+    /* MLE: x_m = min(x), alpha = n / sum(log(x) - log(x_m)) */
+    double xm = 1e30;
+    for (size_t i = 0; i < n; i++) {
+        if (w[i] > 1e-10 && x[i] > 0 && x[i] < xm) xm = x[i];
+    }
+    if (xm <= 0 || xm > 1e20) xm = 1e-10;
+    double sw = 0, slog = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (x[i] >= xm && w[i] > 1e-10) {
+            sw += w[i];
+            slog += w[i] * (log(x[i]) - log(xm));
+        }
+    }
+    double alpha = slog > 1e-10 ? sw / slog : 1.0;
+    if (alpha < 0.1) alpha = 0.1; if (alpha > 100) alpha = 100;
+    out->p[0] = alpha; out->p[1] = xm; out->nparams = 2;
+}
+static void pareto_init(const double* x, size_t n, int k, DistParams* out) {
+    double mn = 1e30;
+    for (size_t i = 0; i < n; i++) { if (x[i] > 0 && x[i] < mn) mn = x[i]; }
+    if (mn > 1e20) mn = 1.0;
+    for (int j = 0; j < k; j++) {
+        out[j].p[0] = 1.0 + j;  /* alpha */
+        out[j].p[1] = mn;        /* x_m */
+        out[j].nparams = 2;
+    }
+}
+static int pareto_valid(double x) { return x > 0; }
+
+
+/* ====================================================================
  * Distribution registry
  * ==================================================================== */
 static DistFunctions dist_table[] = {
@@ -378,6 +648,12 @@ static DistFunctions dist_table[] = {
     { DIST_BETA,        "Beta",        2, beta_pdf,    beta_logpdf,    beta_estimate,    beta_init,    beta_valid },
     { DIST_UNIFORM,     "Uniform",     2, uniform_pdf, NULL,           uniform_estimate, uniform_init, uniform_valid },
     { 0, NULL, 0, NULL, NULL, NULL, NULL, NULL },  /* Pearson placeholder, filled at init */
+    { DIST_STUDENT_T,   "StudentT",    3, studt_pdf,   studt_logpdf,   studt_estimate,   studt_init,   studt_valid },
+    { DIST_LAPLACE,     "Laplace",     2, laplace_pdf, laplace_logpdf, laplace_estimate, laplace_init, laplace_valid },
+    { DIST_CAUCHY,      "Cauchy",      2, cauchy_pdf,  cauchy_logpdf,  cauchy_estimate,  cauchy_init,  cauchy_valid },
+    { DIST_INVGAUSS,    "InvGaussian", 2, invgauss_pdf, invgauss_logpdf, invgauss_estimate, invgauss_init, invgauss_valid },
+    { DIST_RAYLEIGH,    "Rayleigh",    1, rayleigh_pdf, rayleigh_logpdf, rayleigh_estimate, rayleigh_init, rayleigh_valid },
+    { DIST_PARETO,      "Pareto",      2, pareto_pdf,  pareto_logpdf,  pareto_estimate,  pareto_init,  pareto_valid },
 };
 
 static int dist_table_initialized = 0;
@@ -393,7 +669,8 @@ const DistFunctions* GetDistFunctions(DistFamily family) {
     return NULL;
 }
 const char* GetDistName(DistFamily family) {
-    if (family >= 0 && family < DIST_COUNT) return dist_table[family].name;
+    init_dist_table();
+    if (family >= 0 && family < DIST_COUNT && dist_table[family].name) return dist_table[family].name;
     return "Unknown";
 }
 
@@ -475,7 +752,14 @@ int UnmixGeneric(const double* data, size_t n, DistFamily family, int k,
             if (result->mixing_weights[j] < 1e-10) result->mixing_weights[j] = 1e-10;
 
             /* Update distribution parameters via weighted MLE */
+            DistParams old_p = result->params[j];
             df->estimate(data, weights_j, n, &result->params[j]);
+            /* Guard against NaN params — revert to prior if estimate fails */
+            int any_nan = 0;
+            for (int q = 0; q < result->params[j].nparams; q++) {
+                if (!isfinite(result->params[j].p[q])) { any_nan = 1; break; }
+            }
+            if (any_nan) result->params[j] = old_p;
         }
 
         /* Renormalize mixing weights */

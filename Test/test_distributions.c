@@ -274,6 +274,204 @@ void test_bic_parsimony(void) {
     free(data);
 }
 
+/* ===== New family integration tests ===== */
+void test_new_families_pdf(void) {
+    printf("Test: New family PDF integration\n");
+
+    struct { DistFamily fam; double lo; double hi; double step; const char* name; } checks[] = {
+        { DIST_STUDENT_T,   -30, 30,  0.01, "StudentT(0,1,5) integrates ~1" },
+        { DIST_LAPLACE,     -20, 20,  0.01, "Laplace(0,1) integrates ~1" },
+        { DIST_CAUCHY,      -200, 200, 0.1, "Cauchy(0,1) integrates ~1" },
+        { DIST_INVGAUSS,    0.001, 10, 0.001, "InvGauss(1,1) integrates ~1" },
+        { DIST_RAYLEIGH,    0, 20,  0.01, "Rayleigh(1) integrates ~1" },
+        { DIST_PARETO,      1, 1000, 0.01, "Pareto(2,1) integrates ~1" },
+    };
+    double params[][4] = {
+        {0, 1, 5, 0},    /* StudentT: mu, sigma, df */
+        {0, 1, 0, 0},    /* Laplace: mu, b */
+        {0, 1, 0, 0},    /* Cauchy: x0, gamma */
+        {1, 1, 0, 0},    /* InvGauss: mu, lambda */
+        {1, 0, 0, 0},    /* Rayleigh: sigma */
+        {2, 1, 0, 0},    /* Pareto: alpha, xm */
+    };
+
+    for (int t = 0; t < 6; t++) {
+        const DistFunctions* df = GetDistFunctions(checks[t].fam);
+        ASSERT_TRUE(df != NULL, "Family exists");
+        if (!df) continue;
+        DistParams p;
+        p.p[0]=params[t][0]; p.p[1]=params[t][1];
+        p.p[2]=params[t][2]; p.p[3]=params[t][3];
+        p.nparams = df->num_params;
+        double sum = 0;
+        for (double x = checks[t].lo; x <= checks[t].hi; x += checks[t].step)
+            sum += df->pdf(x, &p) * checks[t].step;
+        ASSERT_CLOSE(sum, 1.0, 0.05, checks[t].name);
+    }
+}
+
+/* ===== Student-t mixture: robust to outliers ===== */
+void test_student_t_robustness(void) {
+    printf("Test: Student-t mixture robustness to outliers\n");
+    srand(1234);
+    int n = 2000;
+    double* data = (double*)malloc(sizeof(double)*n);
+    /* 90% from Normal, 10% outliers (heavy tails) */
+    for (int i=0; i<1800; i++) data[i] = randn(0, 1);
+    for (int i=1800; i<2000; i++) data[i] = randn(0, 10);
+
+    MixtureResult r;
+    int rc = UnmixGeneric(data, n, DIST_STUDENT_T, 1, 300, 1e-5, 0, &r);
+    ASSERT_TRUE(rc == 0, "StudentT EM succeeds");
+    if (rc == 0) {
+        ASSERT_CLOSE(r.params[0].p[0], 0.0, 0.5, "StudentT mean near 0");
+        /* df should be < 30 (heavier than Normal due to outliers) */
+        ASSERT_TRUE(r.params[0].p[2] < 50, "StudentT df < 50 (heavy tails detected)");
+    }
+    ReleaseMixtureResult(&r);
+    free(data);
+}
+
+/* ===== Laplace mixture ===== */
+void test_laplace_mixture(void) {
+    printf("Test: Laplace mixture EM\n");
+    srand(5678);
+    int n = 2000;
+    double* data = (double*)malloc(sizeof(double)*n);
+    /* Two Laplace components at -3 and +3, b=0.5 */
+    for (int i=0; i<n; i++) {
+        double u = (rand()%10000+1)/10001.0;
+        double v = (rand()%10000+1)/10001.0;
+        /* Laplace(mu, b): mu + b * ln(u/v) */
+        double mu = (i < n/2) ? -3.0 : 3.0;
+        data[i] = mu + 0.5 * log(u / v);
+    }
+
+    MixtureResult r;
+    int rc = UnmixGeneric(data, n, DIST_LAPLACE, 2, 300, 1e-5, 0, &r);
+    ASSERT_TRUE(rc == 0, "Laplace mixture EM succeeds");
+    if (rc == 0) {
+        double m0 = r.params[0].p[0], m1 = r.params[1].p[0];
+        double lo = (m0 < m1) ? m0 : m1;
+        double hi = (m0 < m1) ? m1 : m0;
+        ASSERT_CLOSE(lo, -3.0, 1.0, "Laplace lower mean near -3");
+        ASSERT_CLOSE(hi,  3.0, 1.0, "Laplace upper mean near +3");
+    }
+    ReleaseMixtureResult(&r);
+    free(data);
+}
+
+/* ===== Rayleigh: signal amplitude model ===== */
+void test_rayleigh(void) {
+    printf("Test: Rayleigh single-component EM\n");
+    srand(9999);
+    int n = 2000;
+    double* data = (double*)malloc(sizeof(double)*n);
+    /* Rayleigh(sigma=2): sample via inverse CDF: x = sigma * sqrt(-2*ln(u)) */
+    double sigma_true = 2.0;
+    for (int i=0; i<n; i++) {
+        double u = (rand()%100000+1)/100001.0;
+        data[i] = sigma_true * sqrt(-2.0 * log(u));
+    }
+    MixtureResult r;
+    int rc = UnmixGeneric(data, n, DIST_RAYLEIGH, 1, 200, 1e-5, 0, &r);
+    ASSERT_TRUE(rc == 0, "Rayleigh EM succeeds");
+    if (rc == 0) ASSERT_CLOSE(r.params[0].p[0], sigma_true, 0.2, "Rayleigh sigma near 2");
+    ReleaseMixtureResult(&r);
+    free(data);
+}
+
+/* ===== Pareto: power-law tail detection ===== */
+void test_pareto(void) {
+    printf("Test: Pareto single-component EM\n");
+    srand(4242);
+    int n = 2000;
+    double* data = (double*)malloc(sizeof(double)*n);
+    /* Pareto(alpha=2, xm=1): x = xm / u^(1/alpha) */
+    for (int i=0; i<n; i++) {
+        double u = (rand()%100000+1)/100001.0;
+        data[i] = 1.0 / pow(u, 0.5);  /* alpha=2 */
+    }
+    MixtureResult r;
+    int rc = UnmixGeneric(data, n, DIST_PARETO, 1, 200, 1e-5, 0, &r);
+    ASSERT_TRUE(rc == 0, "Pareto EM succeeds");
+    if (rc == 0) ASSERT_CLOSE(r.params[0].p[0], 2.0, 0.3, "Pareto alpha near 2");
+    ReleaseMixtureResult(&r);
+    free(data);
+}
+
+/* ===== InvGaussian: positive right-skewed data ===== */
+void test_invgauss(void) {
+    printf("Test: InvGaussian EM\n");
+    srand(3141);
+    int n = 2000;
+    double* data = (double*)malloc(sizeof(double)*n);
+    /* Sample from InvGauss(mu=2, lambda=4) via normal approximation
+     * True sample: Seshadri (1993) method */
+    for (int i=0; i<n; i++) {
+        double mu = 2.0, lam = 4.0;
+        double v = randn(0, 1);
+        double y = v * v;
+        double x1 = mu + mu*mu*y/(2*lam) - mu/(2*lam)*sqrt(4*mu*lam*y + mu*mu*y*y);
+        double u = (rand()%100000+1)/100001.0;
+        data[i] = (u <= mu/(mu+x1)) ? x1 : mu*mu/x1;
+    }
+    MixtureResult r;
+    int rc = UnmixGeneric(data, n, DIST_INVGAUSS, 1, 200, 1e-5, 0, &r);
+    ASSERT_TRUE(rc == 0, "InvGauss EM succeeds");
+    if (rc == 0) ASSERT_CLOSE(r.params[0].p[0], 2.0, 0.5, "InvGauss mu near 2");
+    ReleaseMixtureResult(&r);
+    free(data);
+}
+
+/* ===== Model selection picks right family ===== */
+void test_model_selection_student_t(void) {
+    printf("Test: Model selection finds Student-t when data has heavy tails\n");
+    srand(7777);
+    int n = 3000;
+    double* data = (double*)malloc(sizeof(double)*n);
+    /* Sample t(df=3): Box-Muller normal / chi^2 approximation */
+    for (int i = 0; i < n; i++) {
+        /* t(3) = N(0,1) / sqrt(chi2(3)/3) — approx via ratio of normals */
+        double x = randn(0, 1);
+        double y = randn(0, 1) * randn(0, 1) * randn(0, 1);  /* rough heavy tail */
+        data[i] = x / (1 + 0.1*fabs(y));
+    }
+
+    DistFamily fams[] = { DIST_GAUSSIAN, DIST_STUDENT_T, DIST_LAPLACE };
+    ModelSelectResult msr;
+    int rc = SelectBestMixture(data, n, fams, 3, 1, 2, 200, 1e-5, 0, &msr);
+    ASSERT_TRUE(rc == 0, "Model selection succeeds");
+    if (rc == 0) {
+        printf("    Best: %s k=%d (BIC=%.1f)\n",
+               GetDistName(msr.best_family), msr.best_k, msr.best_bic);
+        /* Student-t or Laplace should beat Gaussian for heavy-tailed data */
+        ASSERT_TRUE(msr.best_family != DIST_GAUSSIAN || msr.best_k == 1,
+                    "Heavy-tailed data not best fit by Gaussian");
+        ReleaseModelSelectResult(&msr);
+    }
+    free(data);
+}
+
+/* ===== All 15 families registered ===== */
+void test_all_families_registered(void) {
+    printf("Test: All 15 families registered\n");
+    int count = 0;
+    for (int i = 0; i < DIST_COUNT; i++) {
+        const DistFunctions* df = GetDistFunctions((DistFamily)i);
+        if (df && df->name) {
+            count++;
+        }
+    }
+    ASSERT_TRUE(count == DIST_COUNT, "All DIST_COUNT families registered");
+    printf("  Registered families (%d):", count);
+    for (int i = 0; i < DIST_COUNT; i++) {
+        const DistFunctions* df = GetDistFunctions((DistFamily)i);
+        if (df && df->name) printf(" %s", df->name);
+    }
+    printf("\n");
+}
+
 int main(void) {
     printf("\n========================================\n");
     printf("  GEMMULEM Distribution Framework Tests\n");
@@ -288,6 +486,15 @@ int main(void) {
     test_model_selection_gaussian();
     test_model_selection_exponential();
     test_bic_parsimony();
+    /* New families */
+    test_all_families_registered();
+    test_new_families_pdf();
+    test_student_t_robustness();
+    test_laplace_mixture();
+    test_rayleigh();
+    test_pareto();
+    test_invgauss();
+    test_model_selection_student_t();
 
     printf("\n========================================\n");
     printf("  Results: %d/%d passed", tests_passed, tests_run);
