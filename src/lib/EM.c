@@ -147,10 +147,12 @@ int UnmixGaussians(const double* ValuePtr, size_t Size, int NumGaussians, EMResu
     //  Row is NumDist, Col is Size
     double* lhall = NULL;
     lhall = (double *)malloc(sizeof(double) * Size * NumGaussians);
+    if (!lhall) return -1;
     memset(lhall, 0, sizeof(double) * Size * NumGaussians);
 
     double* tmpvec = NULL;
     tmpvec = (double *)malloc(sizeof(double) * Size);
+    if (!tmpvec) { free(lhall); return -1; }
     memset(tmpvec, 0, sizeof(double) * Size);
 
     while ((!mconv || !vconv || !pconv) && iter <= cfg.maxiter) {
@@ -285,10 +287,21 @@ int RandomInitGaussianEM(const double* ValuePtr, size_t Size, int NumGaussians, 
     ResultPtr->means_init = (double *)malloc(VecSize);
     ResultPtr->vars_init = (double *)malloc(VecSize);
     ResultPtr->probs_init = (double *)malloc(VecSize);
-
     ResultPtr->means_final = (double *)malloc(VecSize);
     ResultPtr->vars_final = (double *)malloc(VecSize);
     ResultPtr->probs_final = (double *)malloc(VecSize);
+
+    if (!ResultPtr->means_init || !ResultPtr->vars_init || !ResultPtr->probs_init ||
+        !ResultPtr->means_final || !ResultPtr->vars_final || !ResultPtr->probs_final) {
+        /* Free whatever was allocated before failing */
+        free(ResultPtr->means_init);  ResultPtr->means_init  = NULL;
+        free(ResultPtr->vars_init);   ResultPtr->vars_init   = NULL;
+        free(ResultPtr->probs_init);  ResultPtr->probs_init  = NULL;
+        free(ResultPtr->means_final); ResultPtr->means_final = NULL;
+        free(ResultPtr->vars_final);  ResultPtr->vars_final  = NULL;
+        free(ResultPtr->probs_final); ResultPtr->probs_final = NULL;
+        return -1;
+    }
 
     for (int i = 0; i < NumGaussians; i++) {
         int ri = rand() % 10000;
@@ -410,10 +423,12 @@ int UnmixExponentials(const double* ValuePtr, size_t Size, int NumExponentials, 
     //
     double* lhall = NULL;
     lhall = (double *)malloc(sizeof(double) * Size * NumExponentials);
+    if (!lhall) return -1;
     memset(lhall, 0, sizeof(double) * Size * NumExponentials);
 
     double* tmpvec = NULL;
     tmpvec = (double *)malloc(sizeof(double) * Size);
+    if (!tmpvec) { free(lhall); return -1; }
     memset(tmpvec, 0, sizeof(double) * Size);
 
     while ((!mconv || !pconv) && iter <= cfg.maxiter) {
@@ -525,9 +540,17 @@ int RandomInitExponentialEM(const double* ValuePtr, size_t Size, int NumExponent
 
     ResultPtr->means_init = (double *)malloc(VecSize);
     ResultPtr->probs_init = (double *)malloc(VecSize);
-
     ResultPtr->means_final = (double *)malloc(VecSize);
     ResultPtr->probs_final = (double *)malloc(VecSize);
+
+    if (!ResultPtr->means_init || !ResultPtr->probs_init ||
+        !ResultPtr->means_final || !ResultPtr->probs_final) {
+        free(ResultPtr->means_init);  ResultPtr->means_init  = NULL;
+        free(ResultPtr->probs_init);  ResultPtr->probs_init  = NULL;
+        free(ResultPtr->means_final); ResultPtr->means_final = NULL;
+        free(ResultPtr->probs_final); ResultPtr->probs_final = NULL;
+        return -1;
+    }
 
     for (int i = 0; i < NumExponentials; i++) {
         // Initialize the means randomly as starting values in the range.
@@ -706,6 +729,17 @@ int KMeansInitGaussianEM(const double* ValuePtr, size_t Size, int NumGaussians, 
     ResultPtr->vars_final = (double *)malloc(VecSize);
     ResultPtr->probs_final = (double *)malloc(VecSize);
 
+    if (!ResultPtr->means_init || !ResultPtr->vars_init || !ResultPtr->probs_init ||
+        !ResultPtr->means_final || !ResultPtr->vars_final || !ResultPtr->probs_final) {
+        free(ResultPtr->means_init);  ResultPtr->means_init  = NULL;
+        free(ResultPtr->vars_init);   ResultPtr->vars_init   = NULL;
+        free(ResultPtr->probs_init);  ResultPtr->probs_init  = NULL;
+        free(ResultPtr->means_final); ResultPtr->means_final = NULL;
+        free(ResultPtr->vars_final);  ResultPtr->vars_final  = NULL;
+        free(ResultPtr->probs_final); ResultPtr->probs_final = NULL;
+        return -1;
+    }
+
     double minv = Min(ValuePtr, Size);
     double maxv = Max(ValuePtr, Size);
 
@@ -717,6 +751,14 @@ int KMeansInitGaussianEM(const double* ValuePtr, size_t Size, int NumGaussians, 
     /* Run k-means for up to 100 iterations */
     int* assignments = (int *)malloc(sizeof(int) * Size);
     double* centers = (double *)malloc(VecSize);
+    if (!assignments || !centers) {
+        free(assignments); free(centers);
+        /* Fall back to the evenly-spaced means already set above */
+        memcpy(ResultPtr->means_final, ResultPtr->means_init, VecSize);
+        memcpy(ResultPtr->vars_final,  ResultPtr->vars_init,  VecSize);
+        memcpy(ResultPtr->probs_final, ResultPtr->probs_init, VecSize);
+        return 0;
+    }
     memcpy(centers, ResultPtr->means_init, VecSize);
 
     for (int iter = 0; iter < 100; iter++) {

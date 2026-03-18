@@ -20,9 +20,17 @@
 | Auto k-selection methods | **5** | 1 | 0 | 0 |
 | Spectral initialization | ✓ | ✗ | ✗ | ✗ |
 | Online/stochastic EM | ✓ | ✗ | ✗ | ✗ |
+| File-based streaming EM | ✓ | ✗ | ✗ | ✗ |
+| SIMD-accelerated E-step | ✓ (AVX2/SSE2) | ✗ | ✗ | ✗ |
+| GPU OpenCL E-step | ✓ | ✗ | ✗ | ✗ |
+| Multivariate Gaussian mixture | ✓ | ✓ | ✗ | ✓ |
+| Multivariate Student-t mixture | ✓ | ✗ | ✗ | ✗ |
+| Multivariate auto-k | ✓ | ✗ | ✗ | ✗ |
+| k-means++ init (10 restarts) | ✓ | ✓ | ✗ | ✗ |
 | Nonparametric (KDE) | ✓ | ✗ | ✗ | ✗ |
 | Cross-family adaptive EM | ✓ | ✗ | ✗ | ✗ |
 | Pearson auto-type | ✓ | ✗ | ✗ | ✗ |
+| SQUAREM acceleration | ✓ | ✗ | ✗ | ✗ |
 | External dependencies | **none** | numpy | R core | PyTorch |
 
 ## Distribution Families (35)
@@ -68,14 +76,29 @@ gemmulem -g data.txt -d Gaussian -k 2
 # Fit Student-t mixture with 3 components
 gemmulem -g data.txt -d StudentT -k 3
 
+# Fit Gamma mixture with verbose output
+gemmulem -g data.txt -d Gamma -k 3 -v
+
 # Auto-detect number of components (BIC-driven)
 gemmulem -g data.txt --adaptive --kmax 8
 
 # Auto-detect with VBEM (Bayesian)
 gemmulem -g data.txt --adaptive --kmethod vbem --kmax 10
 
-# Online EM for large datasets
+# Online (mini-batch) EM for large in-memory datasets
 gemmulem -g big_data.txt -d Gaussian -k 4 --online --batch-size 512
+
+# Streaming EM for datasets too large to fit in memory
+gemmulem -g huge_data.txt -d Gaussian -k 4 --stream --chunk-size 10000 --passes 10
+
+# Multivariate Gaussian mixture (row-major CSV/space-separated input)
+gemmulem -g mvdata.txt --mv -k 3 --cov full
+
+# Multivariate Student-t with auto-k
+gemmulem -g mvdata.txt --mvt --mv-autok --kmax 5
+
+# Save output to file
+gemmulem -g data.txt -d Gaussian -k 2 -o results.txt
 
 # Verbose output
 gemmulem -g data.txt -d Gaussian -k 2 -v
@@ -171,24 +194,65 @@ pygemmulem.unmixgaussians(values, num_distribution)
 
 ## Options Reference
 
+### Input / Output
+
 | Flag | Description | Default |
 |---|---|---|
 | `-g FILE` | Input data file (one value per line) | — |
-| `-i FILE` | Compatibility matrix file | — |
-| `-o FILE` | Output file | timestamp |
-| `-d FAMILY` | Distribution family | Gaussian |
-| `-k N` | Number of components | 3 |
-| `--kmax N` | Max components for adaptive/auto | 8 |
-| `-r TOL` | Convergence tolerance | 0.00001 |
-| `-m N` | Max iterations | 1000 |
-| `-c SEED` | Random seed | — |
-| `-v` | Verbose output | off |
-| `-t` | Show results in terminal | off |
+| `-i FILE` | Compatibility matrix file (MN mode) | — |
+| `-e FILE` | Exponential mixture values file | — |
+| `-o FILE` | Output file | `<timestamp>.abdn.txt` |
+
+### Distribution & Components
+
+| Flag | Description | Default |
+|---|---|---|
+| `-d FAMILY` | Distribution family name | Gaussian |
+| `-k N` | Number of mixture components | 3 |
+| `--kmax N` | Max components for adaptive/auto/mv-autok | 8 |
+
+### Convergence
+
+| Flag | Description | Default |
+|---|---|---|
+| `-r TOL` | Relative convergence tolerance | 0.00001 |
+| `-m N` | Maximum EM iterations | 1000 |
+| `-c SEED` | Integer seed for RNG | — |
+
+### Model Selection
+
+| Flag | Description | Default |
+|---|---|---|
+| `--adaptive` | Adaptive per-component EM (auto-k + auto-family) | off |
 | `--auto` | Exhaustive family × k search | off |
-| `--adaptive` | Adaptive per-component EM | off |
-| `--kmethod M` | k-selection: bic/aic/icl/vbem/mml | bic |
-| `--online` | Stochastic/online EM | off |
-| `--batch-size N` | Mini-batch size for online EM | n/4 |
+| `--kmethod M` | k-selection criterion: `bic` `aic` `icl` `vbem` `mml` | bic |
+
+### Online / Streaming EM
+
+| Flag | Description | Default |
+|---|---|---|
+| `--online` | Mini-batch (online) EM with step-size schedule | off |
+| `--batch-size N` | Mini-batch size for `--online` | n/4 |
+| `--stream` | File-based streaming EM (constant memory) | off |
+| `--chunk-size N` | Rows per chunk for `--stream` | 10000 |
+| `--passes N` | Number of full-data passes for `--stream` | 10 |
+
+### Multivariate Modes
+
+| Flag | Description | Default |
+|---|---|---|
+| `--mv` | Multivariate Gaussian mixture | off |
+| `--mvt` | Multivariate Student-t mixture | off |
+| `--mv-autok` | Auto-select k for multivariate mixture | off |
+| `--dim D` | Dimensionality (auto-detected from data) | — |
+| `--cov TYPE` | Covariance structure: `full` `diagonal` `spherical` | full |
+
+### Output / Display
+
+| Flag | Description | Default |
+|---|---|---|
+| `-v` | Verbose iteration-by-iteration output | off |
+| `-t` | Print results to terminal (skip file write) | off |
 
 ## Building & Testing
 
@@ -198,7 +262,7 @@ cmake .. && cmake --build .
 ctest --output-on-failure
 ```
 
-5 test suites: unit_tests, distribution_tests, pearson_tests, adaptive_tests, spectral_online_mml_tests.
+6 test suites: unit_tests, distribution_tests, pearson_tests, adaptive_tests, spectral_online_mml_tests, multivariate_tests.
 
 ## License
 

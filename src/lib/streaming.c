@@ -35,6 +35,11 @@ int UnmixStreaming(const char* filename, const StreamConfig* config,
     result->num_components = k;
     result->mixing_weights = (double*)malloc(sizeof(double) * k);
     result->params = (DistParams*)malloc(sizeof(DistParams) * k);
+    if (!result->mixing_weights || !result->params) {
+        free(result->mixing_weights); result->mixing_weights = NULL;
+        free(result->params);         result->params = NULL;
+        return -5;
+    }
 
     /* First pass: count lines and compute global stats for initialization */
     FILE* fp = fopen(filename, "r");
@@ -79,6 +84,12 @@ int UnmixStreaming(const char* filename, const StreamConfig* config,
     double* suf_w = (double*)calloc(k, sizeof(double));
     double* suf_wx = (double*)calloc(k, sizeof(double));
     double* suf_wxx = (double*)calloc(k, sizeof(double));
+    if (!suf_w || !suf_wx || !suf_wxx) {
+        free(suf_w); free(suf_wx); free(suf_wxx);
+        free(result->mixing_weights); result->mixing_weights = NULL;
+        free(result->params);         result->params = NULL;
+        return -5;
+    }
 
     /* Init sufficient stats */
     for (int j = 0; j < k; j++) {
@@ -92,6 +103,13 @@ int UnmixStreaming(const char* filename, const StreamConfig* config,
     double* chunk = (double*)malloc(sizeof(double) * chunk_size);
     double* chunk_resp = (double*)malloc(sizeof(double) * k * chunk_size);
     double* chunk_w = (double*)malloc(sizeof(double) * chunk_size);
+    if (!chunk || !chunk_resp || !chunk_w) {
+        free(chunk); free(chunk_resp); free(chunk_w);
+        free(suf_w); free(suf_wx); free(suf_wxx);
+        free(result->mixing_weights); result->mixing_weights = NULL;
+        free(result->params);         result->params = NULL;
+        return -5;
+    }
 
     double prev_ll = -1e30;
     int global_step = 0;

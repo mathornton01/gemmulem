@@ -245,7 +245,7 @@ twine upload dist/*
 ## Distribution Checklist
 
 ### Pre-release
-- [ ] All 6 test suites passing
+- [ ] All 6 test suites passing (unit_tests, distribution_tests, pearson_tests, adaptive_tests, spectral_online_mml_tests, multivariate_tests)
 - [ ] Benchmark results documented
 - [ ] Paper figures generated
 - [ ] README.md updated

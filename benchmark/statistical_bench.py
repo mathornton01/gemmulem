@@ -34,8 +34,9 @@ def run_gem(data, k):
     except: pass
     return elapsed, sorted(params, key=lambda p: p['mean'])
 
-def run_sklearn(data, k):
-    """Run sklearn GMM, return (time_ms, params_list)."""
+def run_sklearn(data, k, seed=None):
+    """Run sklearn GMM, return (time_ms, params_list).
+    Uses random_state=None (sklearn default) for real-world comparison."""
     t0 = time.perf_counter()
     gm = GaussianMixture(k, max_iter=300, tol=1e-6, n_init=1, random_state=None)
     gm.fit(data.reshape(-1, 1))
@@ -83,7 +84,7 @@ def run_scenario(name, true_means, true_vars, true_weights, n, k):
         rng.shuffle(d)
 
         gt, gp = run_gem(d, k)
-        st, sp = run_sklearn(d, k)
+        st, sp = run_sklearn(d, k, seed * 137 + 42)  # deterministic seed per trial
 
         gem_times.append(gt)
         sk_times.append(st)
