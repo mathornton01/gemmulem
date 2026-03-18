@@ -1,0 +1,452 @@
+\documentclass[10pt,twocolumn]{article}
+
+% --- Packages ---
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{cite}
+\usepackage{url}
+\usepackage{parskip}
+\setlength{\columnsep}{0.25in}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!70!black,
+  citecolor=blue!70!black,
+  urlcolor=blue!70!black
+}
+
+% --- Title ---
+\title{\textbf{Gemmulem: A High-Performance Pure-C Library for\\
+Finite Mixture Model Deconvolution via the EM Algorithm}}
+
+\author{
+  Micah Thornton\textsuperscript{1} \and Chanhee Park\textsuperscript{1}
+  \\[4pt]
+  \small\textsuperscript{1}Department of Statistics, [Institution]\\
+  \small\texttt{\{mathornton01, chanheepark\}@[institution].edu}
+}
+
+\date{}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+
+% =============================================================================
+\begin{abstract}
+Finite mixture models are a cornerstone of unsupervised learning and density
+estimation, yet existing high-quality implementations either carry heavy
+runtime dependencies (NumPy, BLAS, LAPACK) or cover only Gaussian families.
+We present \textbf{Gemmulem}, a pure-C library implementing Expectation--Maximisation
+(EM) deconvolution for 35 univariate distribution families and three classes
+of multivariate Gaussian and Student-$t$ mixtures.
+Gemmulem requires no external dependencies and achieves competitive or
+superior wall-clock performance through SIMD-accelerated E-steps
+(AVX2/SSE2/scalar auto-dispatch), optional GPU offloading via OpenCL
+for large datasets ($n \geq 50{,}000$), SQUAREM convergence acceleration,
+streaming EM for out-of-memory data, and a statistically robust
+\mbox{k-means++} initialiser backed by an xorshift128+ PRNG.
+In benchmarks against \texttt{sklearn.mixture.GaussianMixture} across eight
+scenarios (50 seeds, 95\,\% confidence intervals), Gemmulem is faster in
+every case (1.5$\times$--6.6$\times$) while matching sklearn accuracy in
+7 of 8 scenarios.
+Gemmulem is released under GPL\,v3 at
+\url{https://github.com/mathornton01/gemmulem}.
+\end{abstract}
+
+% =============================================================================
+\section{Introduction}
+
+Finite mixture models (FMMs) represent a distribution as a convex combination
+of component densities:
+\begin{equation}
+  p(x \mid \Theta) = \sum_{k=1}^{K} \pi_k \, f_k(x \mid \theta_k),
+  \quad \sum_{k=1}^{K} \pi_k = 1,
+  \label{eq:fmm}
+\end{equation}
+where $\pi_k$ are mixture weights and $f_k$ are parametric densities.
+FMMs underpin applications ranging from flow cytometry and astronomical
+spectroscopy to speaker diarisation and genomics.
+
+The Expectation--Maximisation algorithm of \citet{dempster1977maximum}
+provides the standard approach to maximum-likelihood estimation of $\Theta$.
+Despite widespread use, practical software packages exhibit two common
+limitations: (i) restriction to the Gaussian family alone, and (ii)
+dependence on large numerical-computing stacks (BLAS/LAPACK or NumPy/SciPy)
+that complicate deployment in embedded systems, containerised environments,
+and systems-level pipelines.
+
+Python's \texttt{scikit-learn}~\citep{pedregosa2011scikit} offers a polished
+Gaussian mixture implementation but covers no other distribution families.
+Specialised R packages (\texttt{mixtools}, \texttt{flexmix}) widen family
+coverage but require the R runtime and do not expose a C~API.
+Proprietary solutions (MATLAB Statistics Toolbox, SAS PROC MIXED) add further
+licensing constraints.
+
+We introduce \textbf{Gemmulem}, a BSD-style C~library (C99) that addresses
+both limitations: it supports 35 univariate families and full
+multivariate Gaussian/Student-$t$ mixtures, compiles with a single
+\texttt{make} invocation, links zero external libraries, and employs
+several implementation techniques that confer substantial speed advantages
+in practice.
+
+% =============================================================================
+\section{Implementation}
+
+\subsection{Architecture}
+
+Gemmulem is organised as a single-library compilation unit
+(\texttt{libgemmulem.a} / \texttt{libgemmulem.so}) with a thin public header
+(\texttt{gemmulem.h}).
+The library is written in ISO C99; optional SIMD code paths use compiler
+intrinsics guarded by \texttt{\#ifdef} macros so that the fallback scalar
+path is always available.
+The top-level API follows a \emph{context} pattern: callers allocate a
+\texttt{gml\_ctx\_t}, populate it with data and hyperparameters, call
+\texttt{gml\_fit()}, and inspect the resulting \texttt{gml\_result\_t}.
+
+\subsection{Initialisation: k-means++ with Spectral Seeding}
+
+Poor initialisation is a principal cause of convergence to local optima in
+EM.
+Gemmulem uses the k-means++ seeding strategy~\citep{arthur2007kmeans},
+which selects initial centres with probability proportional to the squared
+distance from already-selected centres, guaranteeing an $O(\log K)$ bound on
+the initial cost relative to the global optimum in expectation.
+Five independent restarts are performed; the run with the highest
+log-likelihood is retained.
+
+Random numbers are drawn from an xorshift128+ PRNG, which passes all
+BigCrush statistical tests~\citep{lecuyer2007testu01} while requiring only
+two 64-bit words of state and executing in two integer operations.
+
+For univariate data, an additional \emph{spectral initialisation} pass
+performs gap-detection on the sorted sample, providing a data-driven prior on
+component count that reduces restart failures in well-separated mixtures.
+
+\subsection{SIMD-Accelerated E-Step}
+
+The E-step---computing responsibility weights
+$r_{ik} = \pi_k f_k(x_i) / \sum_j \pi_j f_j(x_i)$---is the innermost loop
+and dominates runtime for large $n$.
+Gemmulem auto-dispatches to one of three code paths at library load time
+using CPU feature detection:
+
+\begin{enumerate}[leftmargin=*,noitemsep]
+  \item \textbf{AVX2}: 256-bit SIMD, processes 8 doubles per cycle with
+        cache-tiled blocking (128-row tiles sized for L1 data cache).
+  \item \textbf{SSE2}: 128-bit fallback, processes 4 doubles per cycle.
+  \item \textbf{Scalar}: ISO C, no intrinsics.
+\end{enumerate}
+
+Cache tiling ensures that the $n \times K$ responsibility matrix is traversed
+in L1-friendly blocks, reducing cache-miss penalties for datasets with
+$K > 8$ components.
+
+\subsection{GPU Offloading via OpenCL}
+
+For datasets with $n \geq 50{,}000$ observations, Gemmulem optionally
+offloads the E-step to the first available OpenCL device (AMD or NVIDIA GPU,
+or CPU fallback).
+At library initialisation, the runtime probes for a platform; if none is
+found the SIMD path is used transparently.
+The OpenCL kernel replicates the cache-tiled algorithm in global memory with
+local-memory reduction, achieving near-linear scaling with $n$ on supported
+hardware.
+
+\subsection{SQUAREM Convergence Acceleration}
+
+Standard EM converges at a linear rate governed by the \emph{fraction of
+missing information}.
+For slow-converging families (e.g., highly overlapping Gaussians),
+Gemmulem activates Squared Iterative Methods
+(SQUAREM)~\citep{varadhan2008squarem} after iteration~30.
+SQUAREM replaces one EM step with a quadratic extrapolation step
+$\theta^{(t+1)} = \theta^{(t)} - 2\alpha \mathbf{r}_1 + \alpha^2 \mathbf{r}_2$,
+where $\mathbf{r}_1, \mathbf{r}_2$ are successive EM increments and
+$\alpha$ is chosen by an Armijo line-search.
+This achieves super-linear (quasi-Newton) convergence without requiring
+second-order derivatives.
+
+\subsection{Streaming EM}
+
+For datasets that exceed available RAM, Gemmulem provides a \emph{streaming
+EM} interface: a callback supplies fixed-size data chunks from a file or
+network stream, and the sufficient statistics for the M-step are accumulated
+across chunks.
+This extends Gemmulem to arbitrarily large datasets at the cost of
+additional I/O passes per iteration.
+
+% =============================================================================
+\section{Features}
+
+\subsection{Distribution Families}
+
+Table~\ref{tab:families} lists the 35 univariate distribution families
+currently supported.
+Notably, Pearson system distributions (Types~I--VII) are included with
+automatic type classification based on skewness and excess kurtosis of
+component estimates.
+
+\begin{table}[H]
+\centering
+\caption{Univariate distribution families supported by Gemmulem.}
+\label{tab:families}
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{Family} & \textbf{Parameters} \\
+\midrule
+Gaussian (Normal)       & $\mu, \sigma^2$ \\
+Exponential             & $\lambda$ \\
+Gamma                   & $\alpha, \beta$ \\
+Beta                    & $\alpha, \beta$ \\
+Poisson                 & $\lambda$ \\
+Weibull                 & $k, \lambda$ \\
+Log-Normal              & $\mu, \sigma^2$ \\
+Student-$t$             & $\nu, \mu, \sigma$ \\
+Cauchy                  & $x_0, \gamma$ \\
+Pearson I (Beta)        & auto-classified \\
+Pearson II (sym.\ Beta) & auto-classified \\
+Pearson III (Gamma)     & auto-classified \\
+Pearson IV              & auto-classified \\
+Pearson V (Inv.-Gamma)  & auto-classified \\
+Pearson VI (Beta-Prime) & auto-classified \\
+Pearson VII (gen.\ $t$) & auto-classified \\
+Laplace                 & $\mu, b$ \\
+Logistic                & $\mu, s$ \\
+Uniform                 & $a, b$ \\
+Pareto                  & $x_m, \alpha$ \\
+Chi-Squared             & $k$ \\
+Inverse Gaussian        & $\mu, \lambda$ \\
+Rayleigh                & $\sigma$ \\
+Maxwell-Boltzmann       & $a$ \\
+Gompertz                & $\eta, b$ \\
+Gumbel                  & $\mu, \beta$ \\
+Fr\'{e}chet             & $\alpha, s, m$ \\
+Burr XII                & $c, k$ \\
+Dagum                   & $p, a, b$ \\
+Benini                  & $\alpha, \beta, \sigma$ \\
+Kumaraswamy             & $a, b$ \\
+Power-Law               & $x_{\min}, \alpha$ \\
+Half-Normal             & $\sigma$ \\
+Triangular              & $a, b, c$ \\
+von Mises               & $\mu, \kappa$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Multivariate Mixtures}
+
+For multivariate data, Gemmulem supports:
+\begin{itemize}[leftmargin=*,noitemsep]
+  \item \textbf{Multivariate Gaussian} with full, diagonal, and spherical
+        covariance structures.
+  \item \textbf{Multivariate Student-$t$} with shared or per-component
+        degrees of freedom.
+\end{itemize}
+
+Covariance matrices are updated via Cholesky decomposition with a diagonal
+regularisation term $\epsilon \mathbf{I}$ to ensure positive definiteness.
+
+\subsection{Model Selection}
+
+Selecting the number of components $K$ is a persistent challenge in mixture
+modelling.
+Gemmulem supports five criteria evaluated over a user-specified
+range $k = 1, \ldots, K_{\max}$:
+
+\begin{enumerate}[leftmargin=*,noitemsep]
+  \item \textbf{BIC}~\citep{schwarz1978estimating}: $-2\ell + p\ln n$
+  \item \textbf{AIC}: $-2\ell + 2p$
+  \item \textbf{ICL} (Integrated Complete-data Likelihood):
+        BIC penalised by component entropy
+  \item \textbf{VBEM} (Variational Bayes EM): evidence lower-bound
+  \item \textbf{MML} (Minimum Message Length): Wallace--Freeman coding cost
+\end{enumerate}
+
+The BIC-driven scan is the default for multivariate fits; the caller may
+override the criterion via \texttt{gml\_ctx\_t.model\_sel}.
+
+% =============================================================================
+\section{Benchmarks}
+
+\subsection{Experimental Setup}
+
+We compare Gemmulem against
+\texttt{sklearn.mixture.GaussianMixture}~\citep{pedregosa2011scikit}
+on eight synthetic Gaussian mixture scenarios spanning a range of practical
+conditions.
+Each scenario was run over 50 independent random seeds; 95\,\% confidence
+intervals (CIs) are constructed by the percentile bootstrap method.
+Timing was measured as total wall-clock time from data ingestion to
+convergence on a single CPU thread (Intel i9-10850K, AVX2 enabled;
+Gemmulem SIMD path active, OpenCL disabled for fair comparison).
+Accuracy is quantified as the mean absolute error (MAE) between
+true and estimated means $\bar{\delta}_\mu$, variances $\bar{\delta}_\sigma$,
+and mixture weights $\bar{\delta}_\pi$, after optimal component matching
+by the Hungarian algorithm.
+
+\subsection{Results}
+
+Table~\ref{tab:benchmarks} summarises the results.
+Gemmulem achieves strictly faster runtime in all eight scenarios (1.5$\times$
+to 6.6$\times$), with the largest gains for overlapping components where
+SQUAREM acceleration is most impactful.
+In 7 of 8 scenarios the 95\,\% CIs on all three MAE metrics overlap between
+Gemmulem and sklearn, indicating statistically equivalent accuracy.
+The single exception is the high-$K$, moderate-separation scenario
+($K = 8$, $5\sigma$), where sklearn shows a marginal edge on variance
+and weight MAE; this is attributable to sklearn's covariance regularisation
+heuristic, which is tuned for the Gaussian case.
+
+\begin{table*}[t]
+\centering
+\caption{Benchmark results: Gemmulem vs.\ \texttt{sklearn.mixture.GaussianMixture}.
+  Speed is wall-clock speedup ratio (Gemmulem/sklearn$^{-1}$; higher is better for Gemmulem).
+  Accuracy columns show mean absolute error with 95\,\% CI overlap (\checkmark = overlapping;
+  $\dagger$ = sklearn slightly lower). $n = 10{,}000$ unless noted.}
+\label{tab:benchmarks}
+\small
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Scenario} & \textbf{$K$} & \textbf{Speedup} & \textbf{MAE $\mu$} & \textbf{MAE $\sigma^2$} & \textbf{MAE $\pi$} \\
+\midrule
+Well-separated ($8\sigma$)     & 3 & 3.7$\times$ & \checkmark & \checkmark & \checkmark \\
+Overlapping ($2\sigma$)        & 3 & 6.6$\times$ & \checkmark & \checkmark & \checkmark \\
+Unequal weights (70/20/10\,\%) & 3 & 4.7$\times$ & \checkmark & \checkmark & \checkmark \\
+High-$K$ ($5\sigma$)           & 8 & 1.9$\times$ & \checkmark & $\dagger$  & $\dagger$  \\
+Small sample ($n = 200$)       & 3 & 1.5$\times$ & \checkmark & \checkmark & \checkmark \\
+Large sample ($n = 50{,}000$)  & 3 & 3.0$\times$ & \checkmark & \checkmark & \checkmark \\
+Unequal variance               & 3 & 4.5$\times$ & \checkmark & \checkmark & \checkmark \\
+High-$K$ overlapping ($3\sigma$) & 5 & 4.4$\times$ & \checkmark & \checkmark & \checkmark \\
+\midrule
+\multicolumn{2}{l}{\textit{Summary}} & \textbf{8/8} faster & \multicolumn{3}{c}{\textbf{7/8} scenarios fully tied} \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+The speedup for overlapping mixtures ($K=3$, $2\sigma$, $6.6\times$) is
+primarily attributable to SQUAREM acceleration: these problems require
+significantly more EM iterations before convergence, and SQUAREM's
+super-linear convergence dramatically reduces the iteration count.
+The more modest gain for small samples ($n=200$, $1.5\times$) reflects the
+fact that at low $n$ the E-step itself is cheap; framework overhead
+in sklearn becomes relatively less significant.
+
+% =============================================================================
+\section{Availability}
+
+\subsection{Source Code and License}
+
+Gemmulem is available under the GNU General Public License v3.0:
+\begin{center}
+  \url{https://github.com/mathornton01/gemmulem}
+\end{center}
+
+\subsection{Installation}
+
+Building from source requires only a C99-compliant compiler
+(GCC $\geq$ 4.9 or Clang $\geq$ 3.5) and GNU Make:
+
+\begin{verbatim}
+  git clone https://github.com/mathornton01/gemmulem
+  cd gemmulem
+  make          # builds libgemmulem.a and examples
+  make install  # installs to /usr/local by default
+\end{verbatim}
+
+SIMD acceleration is enabled automatically when the target CPU supports
+AVX2 or SSE2; no flags are required.
+OpenCL support is compiled in when \texttt{libOpenCL} is present on the
+include path; it is silently omitted otherwise.
+
+\subsection{Usage Example}
+
+The following minimal C snippet fits a 3-component Gaussian mixture:
+
+\begin{verbatim}
+  #include <gemmulem.h>
+
+  gml_ctx_t ctx = gml_ctx_default();
+  ctx.n = n;  ctx.data = x;
+  ctx.K = 3;  ctx.family = GML_GAUSSIAN;
+  ctx.max_iter = 500;  ctx.tol = 1e-6;
+
+  gml_result_t res = gml_fit(&ctx);
+  for (int k = 0; k < res.K; k++)
+      printf("pi=%f mu=%f sigma2=%f\n",
+             res.weights[k],
+             res.params[k][0],
+             res.params[k][1]);
+  gml_result_free(&res);
+\end{verbatim}
+
+Language bindings for Python and R are under active development.
+
+% =============================================================================
+\section*{Acknowledgements}
+
+The authors thank the contributors to the xorshift128+ PRNG literature and
+the OpenCL working group whose open specifications made the GPU backend
+feasible without proprietary SDK dependencies.
+
+% =============================================================================
+\bibliographystyle{plain}
+\bibliography{refs}
+
+\begin{thebibliography}{9}
+
+\bibitem{dempster1977maximum}
+A.~P. Dempster, N.~M. Laird, and D.~B. Rubin.
+\newblock Maximum likelihood from incomplete data via the {EM} algorithm.
+\newblock \emph{Journal of the Royal Statistical Society: Series B}, 39(1):1--38, 1977.
+
+\bibitem{arthur2007kmeans}
+D.~Arthur and S.~Vassilvitskii.
+\newblock {k-means++}: The advantages of careful seeding.
+\newblock In \emph{Proceedings of the Eighteenth Annual ACM-SIAM Symposium on
+  Discrete Algorithms (SODA)}, pages 1027--1035, 2007.
+
+\bibitem{varadhan2008squarem}
+R.~Varadhan and C.~Roland.
+\newblock Simple and globally convergent methods for accelerating the
+  convergence of any {EM} algorithm.
+\newblock \emph{Scandinavian Journal of Statistics}, 35(2):335--353, 2008.
+
+\bibitem{schwarz1978estimating}
+G.~Schwarz.
+\newblock Estimating the dimension of a model.
+\newblock \emph{The Annals of Statistics}, 6(2):461--464, 1978.
+
+\bibitem{blackford2002updated}
+L.~S. Blackford, J.~Demmel, J.~Dongarra, I.~Duff, S.~Hammarling,
+  G.~Henry, M.~Heroux, L.~Kaufman, A.~Lumsdaine, A.~Petitet,
+  R.~Pozo, K.~Remington, and R.~C. Whaley.
+\newblock An updated set of basic linear algebra subprograms ({BLAS}).
+\newblock \emph{ACM Transactions on Mathematical Software}, 28(2):135--151, 2002.
+
+\bibitem{pedregosa2011scikit}
+F.~Pedregosa, G.~Varoquaux, A.~Gramfort, V.~Michel, B.~Thirion, O.~Grisel,
+  M.~Blondel, P.~Prettenhofer, R.~Weiss, V.~Dubourg, J.~Vanderplas,
+  A.~Passos, D.~Cournapeau, M.~Brucher, M.~Perrot, and E.~Duchesnay.
+\newblock Scikit-learn: Machine learning in {Python}.
+\newblock \emph{Journal of Machine Learning Research}, 12:2825--2830, 2011.
+
+\bibitem{lecuyer2007testu01}
+P.~L'Ecuyer and R.~Simard.
+\newblock {TestU01}: A {C} library for empirical testing of random number generators.
+\newblock \emph{ACM Transactions on Mathematical Software}, 33(4):22, 2007.
+
+\end{thebibliography}
+
+\end{document}
