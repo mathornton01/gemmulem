@@ -2422,6 +2422,231 @@ static double bimodality_coeff(const double* data, const double* weights, size_t
     return (gamma1_sq + 1.0) / denom;
 }
 
+/* Excess spread score for skewed/positive families.
+ *
+ * The classic bimodality coefficient (BC) detects symmetric bimodality well
+ * but is blind to multimodality in skewed data:  a mixture of two Gamma
+ * components looks like a single heavy-tailed Gamma, and BC never exceeds
+ * the split threshold.
+ *
+ * This score instead measures the KS-like distance between the empirical
+ * distribution and the best-fitting single-component model.  If that
+ * distance is large, the data has structure the single component can't
+ * explain — a strong signal to split.
+ *
+ * Algorithm:
+ *   1. Sort the (weighted) data.
+ *   2. Compute the CDF predicted by the fitted component at each sorted point.
+ *   3. Return max |F_empirical(x) - F_model(x)| (Kolmogorov-Smirnov stat).
+ *
+ * This is O(n log n) due to sorting, computed once per split candidate.
+ * For large n we subsample 500 evenly-spaced points (O(1) sorted access).
+ *
+ * Returns a value in [0, 1]. Typical threshold for splitting: > 0.1.
+ */
+static double ks_split_score(const double* data, const double* weights, size_t n,
+                              DistFamily fam, const DistParams* par)
+{
+    const DistFunctions* df = GetDistFunctions(fam);
+    if (!df || !df->pdf) return 0.0;
+
+    /* Build sorted index of data with non-negligible weight */
+    size_t m = 0;
+    for (size_t i = 0; i < n; i++) if (weights[i] > 1e-6) m++;
+    if (m < 10) return 0.0;
+
+    /* Collect (value, weight) pairs */
+    double* vals = (double*)malloc(sizeof(double) * m);
+    double* wts  = (double*)malloc(sizeof(double) * m);
+    if (!vals || !wts) { free(vals); free(wts); return 0.0; }
+    size_t idx = 0;
+    double sw = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (weights[i] > 1e-6) {
+            vals[idx] = data[i];
+            wts[idx]  = weights[i];
+            sw += weights[i];
+            idx++;
+        }
+    }
+
+    /* Sort by value (insertion sort OK for m ≤ 500) */
+    size_t stride = m > 500 ? m / 500 : 1;
+    size_t m2 = 0;
+    for (size_t i = 0; i < m; i += stride) {
+        vals[m2] = vals[i]; wts[m2] = wts[i]; m2++;
+    }
+    m = m2;
+    for (size_t i = 1; i < m; i++) {
+        double kv = vals[i], kw = wts[i]; size_t j = i;
+        while (j > 0 && vals[j-1] > kv) { vals[j] = vals[j-1]; wts[j] = wts[j-1]; j--; }
+        vals[j] = kv; wts[j] = kw;
+    }
+
+    /* Numerical CDF by trapezoidal integration of pdf at sorted points */
+    double ks_stat = 0.0, cum_emp = 0.0;
+    /* Precompute CDF numerically at grid points */
+    size_t ng = m < 200 ? m : 200;
+    double xmin = vals[0], xmax = vals[m-1];
+    if (xmax <= xmin) { free(vals); free(wts); return 0.0; }
+
+    /* Empirical CDF vs model CDF at each sorted data point */
+    /* Use model's own PDF for CDF estimate via running trapezoid */
+    double prev_pdf = 0, prev_x = xmin, cum_model = 0;
+    size_t vi = 0;
+    double step = (xmax - xmin) / (ng > 1 ? ng-1 : 1);
+    double cum_w_so_far = 0;
+
+    /* Simpler: compare empirical quantiles to model quantiles */
+    /* At sorted point vals[i], empirical CDF = cum_weight / sw */
+    /* Model CDF approximated by integrating pdf numerically */
+    double* model_cdf = (double*)malloc(sizeof(double) * m);
+    if (!model_cdf) { free(vals); free(wts); return 0.0; }
+
+    /* Integrate PDF across sorted points using trapezoidal rule */
+    double integral = 0;
+    double prev_p = df->pdf(vals[0], par);
+    model_cdf[0] = 0;
+    for (size_t i = 1; i < m; i++) {
+        double p = df->pdf(vals[i], par);
+        if (!isfinite(p) || p < 0) p = 0;
+        integral += 0.5 * (prev_p + p) * (vals[i] - vals[i-1]);
+        model_cdf[i] = integral;
+        prev_p = p;
+    }
+    /* Normalize model CDF to [0,1] */
+    double total_integral = model_cdf[m-1];
+    if (total_integral < 1e-10) { free(vals); free(wts); free(model_cdf); return 0.0; }
+    for (size_t i = 0; i < m; i++) model_cdf[i] /= total_integral;
+
+    /* Compute KS statistic */
+    double cum_emp_w = 0;
+    for (size_t i = 0; i < m; i++) {
+        cum_emp_w += wts[i];
+        double emp_cdf = cum_emp_w / sw;
+        double diff = fabs(emp_cdf - model_cdf[i]);
+        if (diff > ks_stat) ks_stat = diff;
+    }
+
+    free(vals); free(wts); free(model_cdf);
+    return ks_stat;
+}
+
+/* Family-aware split perturbation.
+ *
+ * The original code always perturbed p[0] ± sigma/2, which is correct for
+ * Gaussian (p[0]=mean, p[1]=variance) but wrong for all other families:
+ *   - Exponential: p[0] = rate λ (mean = 1/λ); split should multiply/divide rate
+ *   - Gamma:       p[0] = shape α, p[1] = scale β; split on scale makes sense
+ *   - LogNormal:   p[0] = μ (log-space mean); split directly in log-space
+ *   - Weibull:     p[0] = shape k, p[1] = scale λ; split on scale
+ *   - Poisson:     p[0] = λ; split as λ/2 and 2λ
+ *   - Beta:        p[0] = α, p[1] = β; perturb toward boundaries
+ *
+ * For each family we compute two candidate parameter sets that would fit
+ * the left and right "halves" of the component's predicted distribution,
+ * then let EM refine from there.
+ */
+static void family_aware_split(DistFamily fam, const DistParams* src,
+                                DistParams* lo, DistParams* hi)
+{
+    *lo = *src;
+    *hi = *src;
+
+    switch (fam) {
+        case DIST_GAUSSIAN:
+        case DIST_STUDENT_T:
+        case DIST_LAPLACE:
+        case DIST_LOGISTIC:
+        case DIST_CAUCHY:
+        case DIST_GUMBEL:
+        case DIST_SKEWNORMAL:
+        case DIST_GENGAUSS: {
+            /* Location-scale: perturb mean (p[0]) by ±sigma */
+            double sigma = (src->nparams >= 2) ? sqrt(fabs(src->p[1])) : 1.0;
+            if (sigma < 1e-6) sigma = fabs(src->p[0]) * 0.1 + 1.0;
+            lo->p[0] = src->p[0] - sigma * 0.5;
+            hi->p[0] = src->p[0] + sigma * 0.5;
+            break;
+        }
+        case DIST_EXPONENTIAL: {
+            /* Rate λ: split into fast (high λ) and slow (low λ) */
+            double lam = src->p[0]; if (lam < 1e-6) lam = 1.0;
+            lo->p[0] = lam * 2.0;   /* faster decay (smaller mean) */
+            hi->p[0] = lam * 0.5;   /* slower decay (larger mean)  */
+            break;
+        }
+        case DIST_GAMMA:
+        case DIST_WEIBULL:
+        case DIST_LOGNORMAL:
+        case DIST_INVGAUSS:
+        case DIST_LOGLOGISTIC:
+        case DIST_NAKAGAMI:
+        case DIST_RAYLEIGH:
+        case DIST_HALFNORMAL:
+        case DIST_MAXWELL: {
+            /* These have σ as p[0] — split on that */
+            double sigma = fabs(src->p[0]); if (sigma < 1e-6) sigma = 1.0;
+            lo->p[0] = sigma * 0.7;   /* tighter */
+            hi->p[0] = sigma * 1.4;   /* wider */
+            break;
+        }
+        case DIST_POISSON:
+        case DIST_GEOMETRIC:
+        case DIST_ZIPF:
+        case DIST_NEGBINOM: {
+            /* Rate λ: split into low-count and high-count */
+            double lam = src->p[0]; if (lam < 0.5) lam = 0.5;
+            lo->p[0] = lam * 0.4;
+            hi->p[0] = lam * 2.5;
+            break;
+        }
+        case DIST_BETA:
+        case DIST_KUMARASWAMY: {
+            /* Split: one component toward 0 (α<β), one toward 1 (α>β) */
+            double a = src->p[0], b = src->p[1];
+            lo->p[0] = a * 0.5;  lo->p[1] = b * 1.5;  /* biased toward 0 */
+            hi->p[0] = a * 1.5;  hi->p[1] = b * 0.5;  /* biased toward 1 */
+            break;
+        }
+        case DIST_UNIFORM: {
+            /* Split the interval [p[0], p[1]] into two halves */
+            double a = src->p[0], b = src->p[1];
+            double mid = 0.5 * (a + b);
+            lo->p[0] = a;   lo->p[1] = mid;
+            hi->p[0] = mid; hi->p[1] = b;
+            break;
+        }
+        case DIST_PARETO:
+        case DIST_LEVY:
+        case DIST_GOMPERTZ:
+        case DIST_BURR:
+        case DIST_CHISQ:
+        case DIST_F: {
+            /* Scale the shape/scale parameters */
+            double p0 = src->p[0]; if (p0 < 0.1) p0 = 1.0;
+            lo->p[0] = p0 * 0.5;
+            hi->p[0] = p0 * 2.0;
+            break;
+        }
+        case DIST_TRIANGULAR: {
+            /* Split triangle mode */
+            double a = src->p[0], b = src->p[1], c = src->p[2];
+            double half = 0.5 * (a + c);
+            lo->p[2] = half;
+            hi->p[2] = 0.5 * (c + b);
+            break;
+        }
+        default: {
+            /* Generic fallback: perturb p[0] by 10% */
+            double delta = fabs(src->p[0]) * 0.1 + 0.5;
+            lo->p[0] = src->p[0] - delta;
+            hi->p[0] = src->p[0] + delta;
+            break;
+        }
+    }
+}
+
 /* Kullback-Leibler divergence estimate between two components */
 static double component_kl_sym(const double* data, size_t n,
                                 DistFamily fam_a, const DistParams* pa,
@@ -2605,10 +2830,83 @@ static int adaptive_split_merge(const double* data, size_t n,
     DistParams* par = (DistParams*)malloc(sizeof(DistParams) * k_max);
     DistFamily* fams = (DistFamily*)malloc(sizeof(DistFamily) * k_max);
 
-    const DistFunctions* gauss = GetDistFunctions(DIST_GAUSSIAN);
-    gauss->init_params(data, n, 1, par);
+    /* Smart k=1 initialization: try several candidate families and pick the
+     * one with best BIC on the raw data.  This prevents the algorithm from
+     * being permanently biased toward Gaussian when the data is clearly
+     * positive-only or discrete. */
+    static const DistFamily seed_families[] = {
+        DIST_GAUSSIAN, DIST_EXPONENTIAL, DIST_GAMMA, DIST_LOGNORMAL,
+        DIST_WEIBULL,  DIST_POISSON,     DIST_BETA,  DIST_LOGISTIC,
+        DIST_LAPLACE
+    };
+    static const int n_seed = 9;
+
+    /* Check data characteristics */
+    int all_positive = 1, all_nonneg = 1, all_bounded = 1, has_nonint = 0;
+    double dmin = data[0], dmax = data[0];
+    for (size_t i = 0; i < n; i++) {
+        if (data[i] <= 0) all_positive = 0;
+        if (data[i] <  0) all_nonneg  = 0;
+        if (data[i] > 1 || data[i] < 0) all_bounded = 0;
+        if (data[i] != floor(data[i])) has_nonint = 1;
+        if (data[i] < dmin) dmin = data[i];
+        if (data[i] > dmax) dmax = data[i];
+    }
+
+    double best_seed_bic = 1e30;
+    DistFamily best_seed_fam = DIST_GAUSSIAN;
+    DistParams best_seed_par;
+
+    double* tmp_resp = (double*)malloc(sizeof(double) * n);
+    for (int sf = 0; sf < n_seed; sf++) {
+        DistFamily cand_fam = seed_families[sf];
+        /* Skip families that can't fit this data */
+        if (!all_positive  && (cand_fam == DIST_EXPONENTIAL || cand_fam == DIST_GAMMA ||
+                               cand_fam == DIST_LOGNORMAL   || cand_fam == DIST_WEIBULL)) continue;
+        if (!all_nonneg    && cand_fam == DIST_POISSON) continue;
+        if (!all_bounded   && cand_fam == DIST_BETA) continue;
+        if (!has_nonint    && cand_fam == DIST_POISSON) {} /* allow */
+        const DistFunctions* df = GetDistFunctions(cand_fam);
+        if (!df) continue;
+
+        DistParams cpar;
+        df->init_params(data, n, 1, &cpar);
+        /* Quick 20-iter EM for this single component */
+        /* Fill uniform weights (size n) for M-step */
+        double* uniform_w = (double*)malloc(sizeof(double) * n);
+        if (!uniform_w) continue;
+        for (size_t i = 0; i < n; i++) uniform_w[i] = 1.0 / (double)n;
+
+        double ll = 0;
+        for (int it = 0; it < 20; it++) {
+            ll = 0;
+            for (size_t i = 0; i < n; i++) {
+                double lp = df->logpdf ? df->logpdf(data[i], &cpar)
+                                       : log(df->pdf(data[i], &cpar) + 1e-300);
+                if (!isfinite(lp)) lp = -700;
+                ll += lp;
+            }
+            DistParams prev = cpar;
+            df->estimate(data, uniform_w, n, &cpar);
+            /* Check validity */
+            int bad = 0;
+            for (int q = 0; q < cpar.nparams; q++)
+                if (!isfinite(cpar.p[q])) { bad = 1; break; }
+            if (bad) { cpar = prev; break; }
+        }
+        free(uniform_w);
+        double bic = -2.0 * ll + df->num_params * log((double)n);
+        if (bic < best_seed_bic) {
+            best_seed_bic = bic;
+            best_seed_fam = cand_fam;
+            best_seed_par = cpar;
+        }
+    }
+    free(tmp_resp);
+
+    par[0] = best_seed_par;
     mix_w[0] = 1.0;
-    fams[0] = DIST_GAUSSIAN;
+    fams[0] = best_seed_fam;
 
     double* resp = (double*)malloc(sizeof(double) * k_max * n);
     double* wj = (double*)malloc(sizeof(double) * n);
@@ -2622,8 +2920,12 @@ static int adaptive_split_merge(const double* data, size_t n,
 
     int outer_iter = 0, no_improve_count = 0;
     const char* crit_name = GetKMethodName(kmethod);
+    /* Always explore at least k=2 before applying patience — this prevents
+     * the search from terminating at k=1 when BIC barely prefers it over k=2
+     * due to split perturbation being sub-optimal on the first attempt. */
+    const int min_k_explore = 2;
 
-    while (outer_iter < 20 && no_improve_count < 3) {
+    while (outer_iter < 20 && (k <= min_k_explore || no_improve_count < 3)) {
         outer_iter++;
 
         double cur_ll;
@@ -2657,12 +2959,20 @@ static int adaptive_split_merge(const double* data, size_t n,
 
         if (k >= k_max) break;
 
-        /* Split most bimodal component */
-        double max_bc = 0; int split_j = -1;
+        /* Split most "un-explained" component.
+         * Combine bimodality coefficient (BC) with a KS goodness-of-fit score:
+         *   score = max(BC / 0.555, ks_score / 0.15)
+         * BC threshold 0.555 = theoretical bimodal threshold (Sarle 1990).
+         * KS threshold 0.10  = meaningful deviation from single-component fit.
+         * Using max() means EITHER signal triggers a split — BC catches symmetric
+         * multimodality while KS catches poor fit in skewed/positive families. */
+        double max_score = 0; int split_j = -1;
         for (int j = 0; j < k; j++) {
             for (size_t i = 0; i < n; i++) wj[i] = resp[j*n+i];
             double bc = bimodality_coeff(data, wj, n);
-            if (bc > max_bc && mix_w[j] > 0.05) { max_bc = bc; split_j = j; }
+            double ks = ks_split_score(data, wj, n, fams[j], &par[j]);
+            double score = bc / 0.555 > ks / 0.10 ? bc / 0.555 : ks / 0.10;
+            if (score > max_score && mix_w[j] > 0.05) { max_score = score; split_j = j; }
         }
 
         /* Merge similar components */
@@ -2673,16 +2983,16 @@ static int adaptive_split_merge(const double* data, size_t n,
                 if (kl < min_kl) { min_kl = kl; merge_a = a; merge_b = b; }
             }
 
-        /* Split */
+        /* Split using family-aware parameter perturbation */
         if (k < k_max) {
             if (split_j < 0) split_j = 0;
-            if (verbose) printf("  Splitting component %d (BC=%.3f, %s)\n",
-                                split_j, max_bc, GetDistName(fams[split_j]));
-            double mu_j = par[split_j].p[0];
-            double sigma_j = (par[split_j].nparams >= 2) ? sqrt(fabs(par[split_j].p[1])) : 1.0;
-            if (sigma_j < 1e-6) sigma_j = 1.0;
-            par[k] = par[split_j]; par[k].p[0] = mu_j + sigma_j * 0.5;
-            fams[k] = fams[split_j]; par[split_j].p[0] = mu_j - sigma_j * 0.5;
+            if (verbose) printf("  Splitting component %d (score=%.3f, %s)\n",
+                                split_j, max_score, GetDistName(fams[split_j]));
+            DistParams lo, hi;
+            family_aware_split(fams[split_j], &par[split_j], &lo, &hi);
+            par[split_j] = lo;
+            par[k]       = hi;
+            fams[k] = fams[split_j];
             double w_orig = mix_w[split_j];
             mix_w[split_j] = w_orig * 0.5; mix_w[k] = w_orig * 0.5;
             k++;
