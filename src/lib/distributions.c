@@ -217,21 +217,27 @@ static void gauss_init(const double* x, size_t n, int k, DistParams* out) {
         xorshift128p_seed(&rng, (uint64_t)dhash * 6364136223846793005ULL
                                 + (uint64_t)trial * 7919ULL + (uint64_t)k);
 
-        /* K-means++ initialization: D²-weighted center selection */
+        /* K-means++ initialization: D²-weighted center selection
+         * Optimization: maintain running d2[i] = min dist² to ANY chosen center.
+         * After adding center c, only update d2[i] with dist to center c
+         * (not all c centers).  Reduces O(n·k²) → O(n·k). */
         centers[0] = x[xorshift128p(&rng) % n];
+        for (size_t i = 0; i < n; i++) {
+            double dd = x[i] - centers[0];
+            d2[i] = dd * dd;
+        }
 
-        /* No c < 64 cap — centers is now dynamically allocated to size k */
         for (int c = 1; c < k; c++) {
             double total = 0;
-            for (size_t i = 0; i < n; i++) {
-                double dmin = 1e30;
-                for (int p = 0; p < c; p++) {
-                    double dd = x[i] - centers[p];
-                    if (dd * dd < dmin) dmin = dd * dd;
+            /* Only update d2 with distance to the NEWEST center (c-1) */
+            if (c > 1) {
+                for (size_t i = 0; i < n; i++) {
+                    double dd = x[i] - centers[c-1];
+                    double dd2 = dd * dd;
+                    if (dd2 < d2[i]) d2[i] = dd2;
                 }
-                d2[i] = dmin;
-                total += dmin;
             }
+            for (size_t i = 0; i < n; i++) total += d2[i];
             double r = xorshift128p_double(&rng) * total;
             double cum = 0;
             size_t pick = n - 1;
@@ -242,9 +248,15 @@ static void gauss_init(const double* x, size_t n, int k, DistParams* out) {
             centers[c] = x[pick];
         }
 
-        /* Run k-means to convergence (up to 30 iterations) */
+        /* Run k-means to convergence (up to 30 iterations).
+         * Fused assign + accumulate: single pass over data computes both
+         * assignments and cluster sums simultaneously (cache-friendly). */
+        double* csum = (double*)calloc(k, sizeof(double));
+        int* ccnt = (int*)calloc(k, sizeof(int));
         for (int iter = 0; iter < 30; iter++) {
             int changed = 0;
+            memset(csum, 0, sizeof(double) * k);
+            memset(ccnt, 0, sizeof(int) * k);
             for (size_t i = 0; i < n; i++) {
                 int best = 0;
                 double dbest = (x[i] - centers[0]) * (x[i] - centers[0]);
@@ -254,16 +266,15 @@ static void gauss_init(const double* x, size_t n, int k, DistParams* out) {
                 }
                 if (iter == 0 || assign[i] != best) changed++;
                 assign[i] = best;
+                csum[best] += x[i];
+                ccnt[best]++;
             }
             for (int j = 0; j < k; j++) {
-                double sum = 0; int cnt_j = 0;
-                for (size_t i = 0; i < n; i++) {
-                    if (assign[i] == j) { sum += x[i]; cnt_j++; }
-                }
-                if (cnt_j > 0) centers[j] = sum / cnt_j;
+                if (ccnt[j] > 0) centers[j] = csum[j] / ccnt[j];
             }
             if (iter > 0 && changed == 0) break;
         }
+        free(csum); free(ccnt);
 
         /* Compute inertia (total within-cluster SSE) */
         double inertia = 0;
