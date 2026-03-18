@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: FAQ
 nav_order: 7
@@ -68,7 +68,7 @@ If you do need GPU support, install the appropriate OpenCL SDK:
 
 ### gemmulem --version shows "(scalar)" — is my CPU too old?
 
-On x86-64, SSE2 is always available. If you see `(scalar)`, Gemmulem couldn't confirm AVX2 support via CPUID. This can happen if:
+On x86-64, SSE2 is always available. If you see `(scalar)`, Gemmule couldn't confirm AVX2 support via CPUID. This can happen if:
 - You're running in a VM that doesn't expose AVX2 flags
 - The binary was compiled without `-march=native`
 
@@ -78,7 +78,7 @@ Force-check with:
 grep avx2 /proc/cpuinfo
 ```
 
-If AVX2 is present but Gemmulem doesn't detect it, rebuild with:
+If AVX2 is present but Gemmule doesn't detect it, rebuild with:
 
 ```bash
 cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS="-march=native"
@@ -110,7 +110,7 @@ Common causes:
 
 1. **Data outside the family's support**: Exponential requires $x > 0$; Beta requires $0 < x < 1$. Check your data with `--verbose`.
 
-2. **Component collapse**: A component shrinks to a single point, making its variance → 0 and log-likelihood → +∞ (a degenerate solution). Gemmulem normally handles this by reinitializing collapsed components. If it persists, try `--min-sigma 1e-3`.
+2. **Component collapse**: A component shrinks to a single point, making its variance → 0 and log-likelihood → +∞ (a degenerate solution). Gemmule normally handles this by reinitializing collapsed components. If it persists, try `--min-sigma 1e-3`.
 
 3. **All data in one component**: If $k$ is too large for the data, some components get near-zero weight and their log-density becomes very negative. Use auto-k or reduce $k$.
 
@@ -170,13 +170,13 @@ Beta requires data in the **open interval** $(0, 1)$. If your proportions includ
 
 ### Can I mix different distribution families in a single mixture?
 
-Not directly — Gemmulem assumes all components share the same family. For mixed-family mixtures, you'd need to implement a custom EM loop using the C API, calling `gem_log_pdf()` with different families for different components.
+Not directly — Gemmule assumes all components share the same family. For mixed-family mixtures, you'd need to implement a custom EM loop using the C API, calling `gem_log_pdf()` with different families for different components.
 
 This is a planned feature for a future release.
 
 ### What's the Pearson family and when should I use it?
 
-The Pearson system is a unified family of distributions parameterized by skewness and kurtosis. Gemmulem automatically classifies your data into the appropriate Pearson type (I–VII) based on weighted moment estimates.
+The Pearson system is a unified family of distributions parameterized by skewness and kurtosis. Gemmule automatically classifies your data into the appropriate Pearson type (I–VII) based on weighted moment estimates.
 
 Use `-f pearson` when:
 - You want the "right" distribution from a classical statistical perspective
@@ -226,7 +226,7 @@ This disagreement is informative: it suggests the evidence for $k=4$ is real but
 
 ## Performance
 
-### Gemmulem is slow on my large dataset. What should I do?
+### Gemmule is slow on my large dataset. What should I do?
 
 1. **Check backend**: Is AVX2 active? Run `gemmulem --version` and look for `(AVX2)`.
 2. **Enable GPU**: If you have an OpenCL-compatible GPU, rebuild with `-DENABLE_OPENCL=ON`.
@@ -235,7 +235,7 @@ This disagreement is informative: it suggests the evidence for $k=4$ is real but
 5. **Reduce k**: Each EM iteration scales as $O(nk)$. Halving $k$ halves the time.
 6. **Use a simpler family**: Gaussian and Exponential are 3–5× faster than Gamma or Weibull (which need Newton iterations in the M-step).
 
-### Can Gemmulem use multiple CPU cores?
+### Can Gemmule use multiple CPU cores?
 
 The E-step is parallelized across cores using OpenMP (if compiled with `-DENABLE_OPENMP=ON`, which is default). Set threads with `--threads N` or `OMP_NUM_THREADS=N`.
 
@@ -252,7 +252,7 @@ The M-step is not parallelized (it's much cheaper than the E-step and paralleliz
 ### How do I report a bug?
 
 Open an issue on [GitHub](https://github.com/mathornton01/gemmulem/issues) with:
-1. Gemmulem version (`gemmulem --version`)
+1. Gemmule version (`gemmulem --version`)
 2. OS and CPU info
 3. Minimal reproducing command (including data file if possible, or a script to generate it)
 4. Expected vs. actual behavior

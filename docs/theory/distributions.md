@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: Distribution Families
 parent: Theory
@@ -9,7 +9,7 @@ math: true
 # Distribution Families
 {: .no_toc }
 
-All 35 families supported by Gemmulem: PDF, parameters, M-step updates, and use cases.
+All 35 families supported by Gemmule: PDF, parameters, M-step updates, and use cases.
 {: .fs-6 .fw-300 }
 
 ## Table of Contents
@@ -22,7 +22,7 @@ All 35 families supported by Gemmulem: PDF, parameters, M-step updates, and use 
 
 ## Overview
 
-Gemmulem supports 35 distribution families, organized into four groups:
+Gemmule supports 35 distribution families, organized into four groups:
 
 | Group | Families |
 |---|---|
@@ -117,7 +117,7 @@ $$f(x \mid \mu, \gamma) = \frac{1}{\pi\gamma\left[1 + \left(\frac{x-\mu}{\gamma}
 | $\mu$ | $(-\infty, \infty)$ | Location (median, mode) |
 | $\gamma$ | $(0, \infty)$ | Scale (half-width at half-maximum) |
 
-**M-step:** No closed form. Gemmulem uses iteratively reweighted least squares (IRLS):
+**M-step:** No closed form. Gemmule uses iteratively reweighted least squares (IRLS):
 
 $$\hat{\mu}_j = \frac{\sum_i \gamma_{ij} w_{ij} x_i}{\sum_i \gamma_{ij} w_{ij}}, \quad w_{ij} = \frac{1}{\gamma_j^2 + (x_i - \mu_j)^2}$$
 
@@ -143,7 +143,7 @@ $$f(x \mid \mu, s) = \frac{\exp(-(x-\mu)/s)}{s\left(1 + \exp(-(x-\mu)/s)\right)^
 
 **Variance:** $\text{Var}(X) = \pi^2 s^2 / 3$
 
-**M-step:** Numerical optimization (no closed form). Gemmulem uses Newton's method with the score function.
+**M-step:** Numerical optimization (no closed form). Gemmule uses Newton's method with the score function.
 
 **CLI flag:** `-f logistic`
 
@@ -677,7 +677,7 @@ where $\beta_1 = \mu_3^2/\mu_2^3$ (squared skewness) and $\beta_2 = \mu_4/\mu_2^
 
 **CLI flag:** `-f pearson`
 
-Gemmulem automatically classifies and fits the appropriate Pearson type based on the weighted moments.
+Gemmule automatically classifies and fits the appropriate Pearson type based on the weighted moments.
 
 ---
 

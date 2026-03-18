@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: Theory
 nav_order: 3
@@ -8,10 +8,10 @@ has_children: true
 # Theory
 {: .no_toc }
 
-Mathematical foundations of Gemmulem's algorithms.
+Mathematical foundations of Gemmule's algorithms.
 {: .fs-6 .fw-300 }
 
-This section covers the theory behind Gemmulem in sufficient depth that a graduate student could implement the algorithms from scratch. Topics are organized from foundational (EM algorithm) to advanced (SIMD, streaming).
+This section covers the theory behind Gemmule in sufficient depth that a graduate student could implement the algorithms from scratch. Topics are organized from foundational (EM algorithm) to advanced (SIMD, streaming).
 
 | Page | Summary |
 |---|---|

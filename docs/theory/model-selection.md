@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: Model Selection
 parent: Theory
@@ -28,7 +28,7 @@ After fitting a mixture model, two questions remain:
 
 Simply maximizing the log-likelihood fails: adding more components always increases (or maintains) the likelihood, leading to overfitting. Model selection criteria penalize complexity to find the **best-generalizing** model.
 
-Gemmulem implements five criteria: **BIC**, **AIC**, **ICL**, **VBEM**, and **MML**.
+Gemmule implements five criteria: **BIC**, **AIC**, **ICL**, **VBEM**, and **MML**.
 
 ---
 
@@ -168,7 +168,7 @@ where:
 - $I(\hat{\boldsymbol{\theta}})$ is the Fisher information matrix (estimated numerically)
 - $\kappa_p$ is a lattice constant (approximated as $\kappa_p \approx 1$ for $p > 5$)
 
-In practice, Gemmulem uses the simplified MML approximation (without the full Fisher information computation):
+In practice, Gemmule uses the simplified MML approximation (without the full Fisher information computation):
 
 $$\text{MML} \approx -\ell(\hat{\boldsymbol{\theta}} \mid \mathbf{x}) + \frac{p}{2}\ln\frac{n}{2\pi e} + \frac{1}{2}\ln(k!) - \sum_{j=1}^k \ln \pi_j$$
 

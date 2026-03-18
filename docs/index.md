@@ -1,12 +1,12 @@
----
+﻿---
 layout: default
 title: Home
 nav_order: 1
-description: "Gemmulem — General Mixed-Family Expectation Maximization"
+description: "Gemmule — General Mixed-Family Expectation Maximization"
 permalink: /
 ---
 
-# Gemmulem
+# Gemmule
 {: .fs-9 }
 
 **General Mixed-Family Expectation Maximization**
@@ -19,9 +19,9 @@ Fit finite mixture models over 35 distribution families with a single command. S
 
 ---
 
-## What is Gemmulem?
+## What is Gemmule?
 
-Gemmulem is a high-performance C library and command-line tool for fitting **finite mixture models** using the **Expectation-Maximization (EM) algorithm**. It supports a broad catalog of 35 parametric distribution families — from the everyday Gaussian and Poisson to exotic families like the Burr, Nakagami, and Gompertz — plus kernel density estimation as a nonparametric fallback.
+Gemmule is a high-performance C library and command-line tool for fitting **finite mixture models** using the **Expectation-Maximization (EM) algorithm**. It supports a broad catalog of 35 parametric distribution families — from the everyday Gaussian and Poisson to exotic families like the Burr, Nakagami, and Gompertz — plus kernel density estimation as a nonparametric fallback.
 
 ### Key Features
 
@@ -98,7 +98,7 @@ Fit a 3-component Gaussian mixture model:
 gemmulem -g data.txt -k 3 -o results.csv
 ```
 
-Gemmulem will:
+Gemmule will:
 1. Load your data
 2. Initialize components with K-means++
 3. Run EM until convergence (with SQUAREM acceleration)
@@ -107,7 +107,7 @@ Gemmulem will:
 ### Sample Output
 
 ```
-# Gemmulem results — 3-component Gaussian mixture
+# Gemmule results — 3-component Gaussian mixture
 # Log-likelihood: -1423.87  BIC: 2891.4  AIC: 2863.7
 component,weight,mu,sigma
 1,0.3412,2.15,0.47
@@ -123,7 +123,7 @@ obs,gamma_1,gamma_2,gamma_3
 
 ### Automatic Family Selection
 
-Not sure which distribution fits your data? Let Gemmulem try all families and pick the best by BIC:
+Not sure which distribution fits your data? Let Gemmule try all families and pick the best by BIC:
 
 ```bash
 gemmulem -g data.txt -k 3 --auto-family --criterion bic -o results.csv
@@ -153,12 +153,12 @@ gemmulem -g data.txt -k 3 --auto-family --criterion bic -o results.csv
 
 ## Citation
 
-If you use Gemmulem in research, please cite:
+If you use Gemmule in research, please cite:
 
 ```bibtex
 @software{gemmulem,
   author  = {Thornton, Micah},
-  title   = {Gemmulem: General Mixed-Family Expectation Maximization},
+  title   = {Gemmule: General Mixed-Family Expectation Maximization},
   year    = {2024},
   url     = {https://github.com/mathornton01/gemmulem}
 }
@@ -168,4 +168,4 @@ If you use Gemmulem in research, please cite:
 
 ## License
 
-Gemmulem is released under the [MIT License](https://github.com/mathornton01/gemmulem/blob/main/LICENSE).
+Gemmule is released under the [MIT License](https://github.com/mathornton01/gemmulem/blob/main/LICENSE).

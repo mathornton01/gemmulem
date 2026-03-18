@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: Benchmarks
 nav_order: 5
@@ -7,7 +7,7 @@ nav_order: 5
 # Benchmarks
 {: .no_toc }
 
-Performance and accuracy benchmarks for Gemmulem.
+Performance and accuracy benchmarks for Gemmule.
 {: .fs-6 .fw-300 }
 
 ## Table of Contents
@@ -140,17 +140,17 @@ Mean absolute error between estimated and true parameters (50 seeds each):
 
 **S1: Gaussian mixture** (true: μ = [1.0, 4.0, 8.0], σ = [0.5, 0.7, 0.6], π = [0.3, 0.4, 0.3])
 
-| Parameter | Gemmulem Error | scikit-learn GaussianMixture Error |
+| Parameter | Gemmule Error | scikit-learn GaussianMixture Error |
 |---|---|---|
 | μ (mean) | 0.021 ± 0.008 | 0.024 ± 0.009 |
 | σ | 0.018 ± 0.007 | 0.020 ± 0.008 |
 | π | 0.009 ± 0.004 | 0.010 ± 0.004 |
 
-Gemmulem matches scikit-learn accuracy to within statistical noise.
+Gemmule matches scikit-learn accuracy to within statistical noise.
 
 **S2: Gamma mixture** (true: shape = [2, 5, 10], rate = [1, 1, 0.5])
 
-| Parameter | Gemmulem Error |
+| Parameter | Gemmule Error |
 |---|---|
 | shape | 0.18 ± 0.06 |
 | rate | 0.08 ± 0.03 |
@@ -159,29 +159,29 @@ Gemmulem matches scikit-learn accuracy to within statistical noise.
 
 Relative log-likelihood gap vs. oracle (fit with true parameters):
 
-| Scenario | Gemmulem | 10 restarts | 50 restarts |
+| Scenario | Gemmule | 10 restarts | 50 restarts |
 |---|---|---|---|
 | S1 | 0.3% ± 0.2% | 0.1% ± 0.1% | 0.05% ± 0.03% |
 | S2 | 1.1% ± 0.5% | 0.4% ± 0.2% | 0.2% ± 0.1% |
 | S5 (heavy-tail) | 2.8% ± 1.2% | 0.9% ± 0.4% | 0.4% ± 0.2% |
 
-With more restarts, Gemmulem gets closer to the global maximum. Heavy-tailed distributions (S5) benefit most from additional restarts.
+With more restarts, Gemmule gets closer to the global maximum. Heavy-tailed distributions (S5) benefit most from additional restarts.
 
 ---
 
-## Speed Comparison Table: Gemmulem vs. Alternatives
+## Speed Comparison Table: Gemmule vs. Alternatives
 
 All tools run on the same hardware, same convergence tolerance, 10 restarts each. Scenario: S2 (n=50k, k=5, Gaussian).
 
 | Tool | Time (s) | Iterations | Notes |
 |---|---|---|---|
-| **Gemmulem (AVX2+SQUAREM)** | **0.52** | **51** | Default settings |
-| Gemmulem (scalar, no SQUAREM) | 4.8 | 487 | Baseline |
+| **Gemmule (AVX2+SQUAREM)** | **0.52** | **51** | Default settings |
+| Gemmule (scalar, no SQUAREM) | 4.8 | 487 | Baseline |
 | scikit-learn GaussianMixture | 1.9 | 312 | Python/NumPy |
 | R mclust | 3.2 | 288 | R implementation |
 | PyTorch EMfit | 0.81 | 143 | GPU (same RX 6800 XT) |
 
-Gemmulem (AVX2+SQUAREM) is the fastest single-machine implementation tested, due to the combination of SIMD acceleration and SQUAREM.
+Gemmule (AVX2+SQUAREM) is the fastest single-machine implementation tested, due to the combination of SIMD acceleration and SQUAREM.
 
 ---
 

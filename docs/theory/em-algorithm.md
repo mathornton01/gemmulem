@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: EM Algorithm
 parent: Theory
@@ -147,7 +147,7 @@ When $r$ is close to 1 (much missing information), EM is very slow. This motivat
 
 ### Convergence Criteria
 
-Gemmulem uses the following stopping rule by default:
+Gemmule uses the following stopping rule by default:
 
 $$|\ell(\boldsymbol{\theta}^{(t+1)}) - \ell(\boldsymbol{\theta}^{(t)})| < \varepsilon \cdot (1 + |\ell(\boldsymbol{\theta}^{(t)})|)$$
 
@@ -181,7 +181,7 @@ $$\log \sum_{j=1}^{k} \pi_j f(x_i \mid \theta_j) = a_i + \log \sum_{j=1}^{k} e^{
 where $a_i = \max_j (\log \pi_j + \log f(x_i \mid \theta_j))$ is chosen to prevent underflow.
 
 ```c
-// Log-sum-exp E-step (Gemmulem implementation)
+// Log-sum-exp E-step (Gemmule implementation)
 double log_gamma[k];
 double a = -INFINITY;
 
@@ -205,7 +205,7 @@ This is numerically stable for all reasonable inputs: the exponents are now in $
 
 ### Handling Degenerate Components
 
-If a component's effective count $N_j$ falls below a threshold (default: 1.0), Gemmulem **reinitializes** that component by:
+If a component's effective count $N_j$ falls below a threshold (default: 1.0), Gemmule **reinitializes** that component by:
 1. Randomly selecting an observation weighted by its assignment probability to the best component
 2. Setting the component's parameters to a small perturbation of that observation
 3. Rebalancing weights

@@ -1,10 +1,12 @@
-# Gemmulem v2.0
+﻿# Gemmule v2.0
+
+*Named for the biological gemmule — a discrete subpopulation that separates from a mixed whole, just as this tool decomposes mixture distributions into their component parts.*
 
 **The most comprehensive univariate mixture model library.** 35 distribution families, 5 automatic model selection methods, spectral initialization, online EM — all in pure C with zero dependencies.
 
 ## Benchmark
 
-| n | Gemmulem | sklearn GMM | Speedup |
+| n | Gemmule | sklearn GMM | Speedup |
 |---:|---:|---:|---:|
 | 1,000 | 14ms | 71ms | **5.1×** |
 | 5,000 | 15ms | 45ms | **2.9×** |
@@ -14,7 +16,7 @@
 
 ## Feature Comparison
 
-| Feature | Gemmulem | sklearn | R mixtools | pomegranate |
+| Feature | Gemmule | sklearn | R mixtools | pomegranate |
 |---|:---:|:---:|:---:|:---:|
 | Distribution families | **35** | 1 | 3 | 5 |
 | Auto k-selection methods | **5** | 1 | 0 | 0 |
@@ -175,7 +177,7 @@ ReleaseAdaptiveResult(&adaptive);
 ## Legacy Modes
 
 ### Coarse Multinomial EM
-The original Gemmulem mode for compatibility-pattern data:
+The original Gemmule mode for compatibility-pattern data:
 ```bash
 gemmulem -i patterns.tsv -o output.txt
 ```
@@ -275,9 +277,9 @@ GPL v3
 
 ## Citation
 
-If you use Gemmulem in your research, please cite:
+If you use Gemmule in your research, please cite:
 ```
-Thornton, M. & Park, C. (2026). Gemmulem: General Mixed-Family Expectation
+Thornton, M. & Park, C. (2026). Gemmule: General Mixed-Family Expectation
 Maximization with Adaptive Model Selection. University of Texas Southwestern
 Medical Center.
 ```

@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: Multivariate EM
 parent: Theory
@@ -26,7 +26,7 @@ Let $\mathbf{x}_1, \ldots, \mathbf{x}_n \in \mathbb{R}^D$ be $D$-dimensional obs
 
 $$p(\mathbf{x}) = \sum_{j=1}^{k} \pi_j \, f_j(\mathbf{x} \mid \boldsymbol{\theta}_j)$$
 
-Gemmulem currently supports two multivariate families: **Multivariate Gaussian** and **Multivariate Student-t**.
+Gemmule currently supports two multivariate families: **Multivariate Gaussian** and **Multivariate Student-t**.
 
 ---
 
@@ -76,9 +76,9 @@ $$\hat{\boldsymbol{\Sigma}}_j = \frac{1}{N_j} \sum_{i=1}^n \gamma_{ij} (\mathbf{
 
 This is a **weighted outer product sum** — $O(nD^2k)$ total.
 
-After the M-step, Gemmulem re-Cholesky-factorizes each $\hat{\boldsymbol{\Sigma}}_j$ for use in the next E-step.
+After the M-step, Gemmule re-Cholesky-factorizes each $\hat{\boldsymbol{\Sigma}}_j$ for use in the next E-step.
 
-**Numerical regularization:** To prevent singular covariance matrices (which cause $|\boldsymbol{\Sigma}_j| = 0$ and $\boldsymbol{\Sigma}_j^{-1}$ to be undefined), Gemmulem adds a small ridge:
+**Numerical regularization:** To prevent singular covariance matrices (which cause $|\boldsymbol{\Sigma}_j| = 0$ and $\boldsymbol{\Sigma}_j^{-1}$ to be undefined), Gemmule adds a small ridge:
 
 $$\hat{\boldsymbol{\Sigma}}_j \leftarrow \hat{\boldsymbol{\Sigma}}_j + \epsilon \mathbf{I}, \quad \epsilon = 10^{-6} \cdot \text{tr}(\hat{\boldsymbol{\Sigma}}_{\text{global}}) / D$$
 

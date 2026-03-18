@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: CLI Reference
 nav_order: 4
@@ -200,7 +200,7 @@ The output file has two sections separated by a blank line.
 **Section 1: Component parameters**
 
 ```csv
-# Gemmulem v1.0.0 output
+# Gemmule v1.0.0 output
 # family: gaussian   k: 3   n: 1000
 # log_likelihood: -1423.87   bic: 2891.4   aic: 2863.7   icl: 2912.1
 # converged: yes   iterations: 47

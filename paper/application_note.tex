@@ -1,4 +1,4 @@
-\documentclass[10pt,twocolumn]{article}
+﻿\documentclass[10pt,twocolumn]{article}
 
 % --- Packages ---
 \usepackage[margin=1in]{geometry}
@@ -24,7 +24,7 @@
 }
 
 % --- Title ---
-\title{\textbf{Gemmulem: A High-Performance Pure-C Library for\\
+\title{\textbf{Gemmule: A High-Performance Pure-C Library for\\
 Finite Mixture Model Deconvolution via the EM Algorithm}}
 
 \author{
@@ -46,20 +46,20 @@ Finite Mixture Model Deconvolution via the EM Algorithm}}
 Finite mixture models are a cornerstone of unsupervised learning and density
 estimation, yet existing high-quality implementations either carry heavy
 runtime dependencies (NumPy, BLAS, LAPACK) or cover only Gaussian families.
-We present \textbf{Gemmulem}, a pure-C library implementing Expectation--Maximisation
+We present \textbf{Gemmule}, a pure-C library implementing Expectation--Maximisation
 (EM) deconvolution for 35 univariate distribution families and three classes
 of multivariate Gaussian and Student-$t$ mixtures.
-Gemmulem requires no external dependencies and achieves competitive or
+Gemmule requires no external dependencies and achieves competitive or
 superior wall-clock performance through SIMD-accelerated E-steps
 (AVX2/SSE2/scalar auto-dispatch), optional GPU offloading via OpenCL
 for large datasets ($n \geq 50{,}000$), SQUAREM convergence acceleration,
 streaming EM for out-of-memory data, and a statistically robust
 \mbox{k-means++} initialiser backed by an xorshift128+ PRNG.
 In benchmarks against \texttt{sklearn.mixture.GaussianMixture} across eight
-scenarios (50 seeds, 95\,\% confidence intervals), Gemmulem is faster in
+scenarios (50 seeds, 95\,\% confidence intervals), Gemmule is faster in
 every case (1.5$\times$--6.6$\times$) while matching sklearn accuracy in
 7 of 8 scenarios.
-Gemmulem is released under GPL\,v3 at
+Gemmule is released under GPL\,v3 at
 \url{https://github.com/mathornton01/gemmulem}.
 \end{abstract}
 
@@ -92,19 +92,22 @@ coverage but require the R runtime and do not expose a C~API.
 Proprietary solutions (MATLAB Statistics Toolbox, SAS PROC MIXED) add further
 licensing constraints.
 
-We introduce \textbf{Gemmulem}, a BSD-style C~library (C99) that addresses
+We introduce \textbf{Gemmule}, a BSD-style C~library (C99) that addresses
 both limitations: it supports 35 univariate families and full
 multivariate Gaussian/Student-$t$ mixtures, compiles with a single
 \texttt{make} invocation, links zero external libraries, and employs
 several implementation techniques that confer substantial speed advantages
 in practice.
+The name \emph{Gemmule} is drawn from biology: a gemmule is a discrete
+subpopulation that buds off from a mixed whole --- just as this library
+decomposes an observed mixture distribution into its constituent component parts.
 
 % =============================================================================
 \section{Implementation}
 
 \subsection{Architecture}
 
-Gemmulem is organised as a single-library compilation unit
+Gemmule is organised as a single-library compilation unit
 (\texttt{libgemmulem.a} / \texttt{libgemmulem.so}) with a thin public header
 (\texttt{gemmulem.h}).
 The library is written in ISO C99; optional SIMD code paths use compiler
@@ -118,7 +121,7 @@ The top-level API follows a \emph{context} pattern: callers allocate a
 
 Poor initialisation is a principal cause of convergence to local optima in
 EM.
-Gemmulem uses the k-means++ seeding strategy~\citep{arthur2007kmeans},
+Gemmule uses the k-means++ seeding strategy~\citep{arthur2007kmeans},
 which selects initial centres with probability proportional to the squared
 distance from already-selected centres, guaranteeing an $O(\log K)$ bound on
 the initial cost relative to the global optimum in expectation.
@@ -138,7 +141,7 @@ component count that reduces restart failures in well-separated mixtures.
 The E-step---computing responsibility weights
 $r_{ik} = \pi_k f_k(x_i) / \sum_j \pi_j f_j(x_i)$---is the innermost loop
 and dominates runtime for large $n$.
-Gemmulem auto-dispatches to one of three code paths at library load time
+Gemmule auto-dispatches to one of three code paths at library load time
 using CPU feature detection:
 
 \begin{enumerate}[leftmargin=*,noitemsep]
@@ -154,7 +157,7 @@ $K > 8$ components.
 
 \subsection{GPU Offloading via OpenCL}
 
-For datasets with $n \geq 50{,}000$ observations, Gemmulem optionally
+For datasets with $n \geq 50{,}000$ observations, Gemmule optionally
 offloads the E-step to the first available OpenCL device (AMD or NVIDIA GPU,
 or CPU fallback).
 At library initialisation, the runtime probes for a platform; if none is
@@ -168,7 +171,7 @@ hardware.
 Standard EM converges at a linear rate governed by the \emph{fraction of
 missing information}.
 For slow-converging families (e.g., highly overlapping Gaussians),
-Gemmulem activates Squared Iterative Methods
+Gemmule activates Squared Iterative Methods
 (SQUAREM)~\citep{varadhan2008squarem} after iteration~30.
 SQUAREM replaces one EM step with a quadratic extrapolation step
 $\theta^{(t+1)} = \theta^{(t)} - 2\alpha \mathbf{r}_1 + \alpha^2 \mathbf{r}_2$,
@@ -179,11 +182,11 @@ second-order derivatives.
 
 \subsection{Streaming EM}
 
-For datasets that exceed available RAM, Gemmulem provides a \emph{streaming
+For datasets that exceed available RAM, Gemmule provides a \emph{streaming
 EM} interface: a callback supplies fixed-size data chunks from a file or
 network stream, and the sufficient statistics for the M-step are accumulated
 across chunks.
-This extends Gemmulem to arbitrarily large datasets at the cost of
+This extends Gemmule to arbitrarily large datasets at the cost of
 additional I/O passes per iteration.
 
 % =============================================================================
@@ -199,7 +202,7 @@ component estimates.
 
 \begin{table}[H]
 \centering
-\caption{Univariate distribution families supported by Gemmulem.}
+\caption{Univariate distribution families supported by Gemmule.}
 \label{tab:families}
 \small
 \begin{tabular}{ll}
@@ -247,7 +250,7 @@ von Mises               & $\mu, \kappa$ \\
 
 \subsection{Multivariate Mixtures}
 
-For multivariate data, Gemmulem supports:
+For multivariate data, Gemmule supports:
 \begin{itemize}[leftmargin=*,noitemsep]
   \item \textbf{Multivariate Gaussian} with full, diagonal, and spherical
         covariance structures.
@@ -262,7 +265,7 @@ regularisation term $\epsilon \mathbf{I}$ to ensure positive definiteness.
 
 Selecting the number of components $K$ is a persistent challenge in mixture
 modelling.
-Gemmulem supports five criteria evaluated over a user-specified
+Gemmule supports five criteria evaluated over a user-specified
 range $k = 1, \ldots, K_{\max}$:
 
 \begin{enumerate}[leftmargin=*,noitemsep]
@@ -282,7 +285,7 @@ override the criterion via \texttt{gml\_ctx\_t.model\_sel}.
 
 \subsection{Experimental Setup}
 
-We compare Gemmulem against
+We compare Gemmule against
 \texttt{sklearn.mixture.GaussianMixture}~\citep{pedregosa2011scikit}
 on eight synthetic Gaussian mixture scenarios spanning a range of practical
 conditions.
@@ -290,7 +293,7 @@ Each scenario was run over 50 independent random seeds; 95\,\% confidence
 intervals (CIs) are constructed by the percentile bootstrap method.
 Timing was measured as total wall-clock time from data ingestion to
 convergence on a single CPU thread (Intel i9-10850K, AVX2 enabled;
-Gemmulem SIMD path active, OpenCL disabled for fair comparison).
+Gemmule SIMD path active, OpenCL disabled for fair comparison).
 Accuracy is quantified as the mean absolute error (MAE) between
 true and estimated means $\bar{\delta}_\mu$, variances $\bar{\delta}_\sigma$,
 and mixture weights $\bar{\delta}_\pi$, after optimal component matching
@@ -299,11 +302,11 @@ by the Hungarian algorithm.
 \subsection{Results}
 
 Table~\ref{tab:benchmarks} summarises the results.
-Gemmulem achieves strictly faster runtime in all eight scenarios (1.5$\times$
+Gemmule achieves strictly faster runtime in all eight scenarios (1.5$\times$
 to 6.6$\times$), with the largest gains for overlapping components where
 SQUAREM acceleration is most impactful.
 In 7 of 8 scenarios the 95\,\% CIs on all three MAE metrics overlap between
-Gemmulem and sklearn, indicating statistically equivalent accuracy.
+Gemmule and sklearn, indicating statistically equivalent accuracy.
 The single exception is the high-$K$, moderate-separation scenario
 ($K = 8$, $5\sigma$), where sklearn shows a marginal edge on variance
 and weight MAE; this is attributable to sklearn's covariance regularisation
@@ -311,8 +314,8 @@ heuristic, which is tuned for the Gaussian case.
 
 \begin{table*}[t]
 \centering
-\caption{Benchmark results: Gemmulem vs.\ \texttt{sklearn.mixture.GaussianMixture}.
-  Speed is wall-clock speedup ratio (Gemmulem/sklearn$^{-1}$; higher is better for Gemmulem).
+\caption{Benchmark results: Gemmule vs.\ \texttt{sklearn.mixture.GaussianMixture}.
+  Speed is wall-clock speedup ratio (Gemmule/sklearn$^{-1}$; higher is better for Gemmule).
   Accuracy columns show mean absolute error with 95\,\% CI overlap (\checkmark = overlapping;
   $\dagger$ = sklearn slightly lower). $n = 10{,}000$ unless noted.}
 \label{tab:benchmarks}
@@ -348,7 +351,7 @@ in sklearn becomes relatively less significant.
 
 \subsection{Source Code and License}
 
-Gemmulem is available under the GNU General Public License v3.0:
+Gemmule is available under the GNU General Public License v3.0:
 \begin{center}
   \url{https://github.com/mathornton01/gemmulem}
 \end{center}

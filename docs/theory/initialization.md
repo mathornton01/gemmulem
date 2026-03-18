@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: Initialization
 parent: Theory
@@ -9,7 +9,7 @@ math: true
 # Initialization: K-means++ and Beyond
 {: .no_toc }
 
-How Gemmulem starts the EM algorithm — and why it matters enormously.
+How Gemmule starts the EM algorithm — and why it matters enormously.
 {: .fs-6 .fw-300 }
 
 ## Table of Contents
@@ -44,7 +44,7 @@ With **good initialization** (components spread across the data):
 
 ## K-means++ Algorithm
 
-Gemmulem uses the **K-means++ initialization** of Arthur & Vassilvitskii (2007), which selects $k$ well-separated initial centers via **D²-weighted sampling**.
+Gemmule uses the **K-means++ initialization** of Arthur & Vassilvitskii (2007), which selects $k$ well-separated initial centers via **D²-weighted sampling**.
 
 ### Algorithm
 
@@ -99,7 +99,7 @@ $$F_i = \sum_{m=1}^{i} D_m \bigg/ \sum_{m=1}^{n} D_m$$
 Draw $u \sim \text{Uniform}[0, 1)$ and find the smallest $i$ such that $F_i \geq u$ via binary search in $O(\log n)$.
 
 ```c
-// Gemmulem D²-sampling kernel
+// Gemmule D²-sampling kernel
 static size_t sample_d2(const double *distances, size_t n, uint64_t *rng_state) {
     double total = 0.0;
     for (size_t i = 0; i < n; i++) total += distances[i];
@@ -118,7 +118,7 @@ static size_t sample_d2(const double *distances, size_t n, uint64_t *rng_state) 
 
 ## xorshift128+ PRNG
 
-The quality of D²-weighted sampling depends on the quality of the pseudo-random numbers used. Gemmulem uses the **xorshift128+** generator (Vigna, 2014), which offers:
+The quality of D²-weighted sampling depends on the quality of the pseudo-random numbers used. Gemmule uses the **xorshift128+** generator (Vigna, 2014), which offers:
 
 - **Period**: $2^{128} - 1$
 - **Speed**: ~1.4 ns/number on modern CPUs (faster than Mersenne Twister)
@@ -167,7 +167,7 @@ static void seed_xorshift128(XorShift128State *state, uint64_t seed) {
 
 ## Cluster-Fraction Weight Initialization
 
-After K-means++ selects initial centers $\{c_1, \ldots, c_k\}$, Gemmulem assigns each observation $x_i$ to its nearest center and uses the resulting cluster sizes to initialize component weights:
+After K-means++ selects initial centers $\{c_1, \ldots, c_k\}$, Gemmule assigns each observation $x_i$ to its nearest center and uses the resulting cluster sizes to initialize component weights:
 
 $$\pi_j^{(0)} = \frac{|C_j|}{n}$$
 
@@ -178,7 +178,7 @@ This is preferable to uniform initialization ($\pi_j = 1/k$) because:
 - Components immediately represent their likely true proportions
 - Fewer EM iterations are needed before weights stabilize
 
-For **variance initialization**, Gemmulem uses the within-cluster variance:
+For **variance initialization**, Gemmule uses the within-cluster variance:
 
 $$\sigma_j^{(0)} = \sqrt{\frac{\sum_{i \in C_j} (x_i - c_j)^2}{|C_j|}}$$
 
@@ -200,7 +200,7 @@ Lower inertia indicates tighter clusters and a better initialization. The restar
 
 ### Restart Schedule
 
-By default, Gemmulem runs `max(1, min(10, k²))` restarts. For $k = 3$, this is 9 restarts. You can override with `--restarts N`.
+By default, Gemmule runs `max(1, min(10, k²))` restarts. For $k = 3$, this is 9 restarts. You can override with `--restarts N`.
 
 ```bash
 gemmulem -g data.txt -k 5 --restarts 50 -o results.csv

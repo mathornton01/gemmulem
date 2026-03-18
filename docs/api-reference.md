@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: C API Reference
 nav_order: 6
@@ -7,7 +7,7 @@ nav_order: 6
 # C API Reference
 {: .no_toc }
 
-Public API for embedding Gemmulem in C programs.
+Public API for embedding Gemmule in C programs.
 {: .fs-6 .fw-300 }
 
 ## Table of Contents
@@ -77,7 +77,7 @@ typedef struct {
 
 ### `GemResult`
 
-Result of a mixture model fit. Allocated by Gemmulem; must be freed with `gem_result_free()`.
+Result of a mixture model fit. Allocated by Gemmule; must be freed with `gem_result_free()`.
 
 ```c
 typedef struct {
@@ -438,7 +438,7 @@ Free all memory associated with a `GemResult`. Safe to call on `NULL`.
 int gem_errno(void);
 ```
 
-Return the error code from the last failed Gemmulem call (thread-local).
+Return the error code from the last failed Gemmule call (thread-local).
 
 #### `gem_strerror`
 
@@ -549,8 +549,8 @@ The PRNG state is per-call (stored in `GemConfig` and copied at the start of `ge
 ## Building with CMake (as a dependency)
 
 ```cmake
-find_package(Gemmulem REQUIRED)
-target_link_libraries(my_app PRIVATE Gemmulem::gemmulem)
+find_package(Gemmule REQUIRED)
+target_link_libraries(my_app PRIVATE Gemmule::gemmulem)
 ```
 
 Or via `pkg-config`:

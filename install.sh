@@ -1,5 +1,5 @@
 #!/bin/bash
-# Gemmulem one-line installer
+# Gemmule one-line installer
 # Usage: curl -sSL https://raw.githubusercontent.com/mathornton01/gemmulem/master/install.sh | bash
 #    or: wget -qO- https://raw.githubusercontent.com/mathornton01/gemmulem/master/install.sh | bash
 
@@ -9,7 +9,7 @@ PREFIX="${PREFIX:-/usr/local}"
 JOBS="${JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)}"
 
 echo "╔══════════════════════════════════════════╗"
-echo "║  Gemmulem — Mixture Model EM             ║"
+echo "║  Gemmule — Mixture Model EM              ║"
 echo "║  https://github.com/mathornton01/gemmulem║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
@@ -58,6 +58,6 @@ else
 fi
 
 echo ""
-echo "✅ Gemmulem installed!"
+echo "✅ Gemmule installed!"
 echo "   Run:  gemmulem --help"
 echo "   Docs: https://mathornton01.github.io/gemmulem/"

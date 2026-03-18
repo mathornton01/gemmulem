@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: Quick Start
 nav_order: 2
@@ -7,7 +7,7 @@ nav_order: 2
 # Quick Start
 {: .no_toc }
 
-Get up and running with Gemmulem in under 10 minutes.
+Get up and running with Gemmule in under 10 minutes.
 {: .fs-6 .fw-300 }
 
 ## Table of Contents
@@ -65,7 +65,7 @@ make -j$(sysctl -n hw.ncpu)
 sudo make install
 ```
 
-> **Note:** On Apple Silicon (M1/M2), Gemmulem will use NEON SIMD instead of AVX2. Performance is similar.
+> **Note:** On Apple Silicon (M1/M2), Gemmule will use NEON SIMD instead of AVX2. Performance is similar.
 
 ### Windows
 
@@ -98,7 +98,7 @@ gemmulem --version
 
 ### Step 1: Prepare Your Data
 
-Gemmulem expects a plain-text file with one numeric observation per line:
+Gemmule expects a plain-text file with one numeric observation per line:
 
 ```
 # data.txt — heights in cm (simulated bimodal)
@@ -141,7 +141,7 @@ gemmulem -g data.txt --auto-k --k-max 8 -o results.csv
 gemmulem -g data.txt -k 3 -o results.csv
 ```
 
-Gemmulem will print progress to stderr:
+Gemmule will print progress to stderr:
 
 ```
 [gemmulem] Loaded 1000 observations
@@ -158,7 +158,7 @@ Gemmulem will print progress to stderr:
 The output CSV has two sections. First, the **component parameters**:
 
 ```csv
-# Gemmulem results
+# Gemmule results
 # family: gaussian   k: 3   n: 1000
 # log_likelihood: -1423.87   bic: 2891.4   aic: 2863.7
 component,weight,mu,sigma
@@ -238,7 +238,7 @@ The Pearson system (Types I–VII) can automatically match your data's skewness 
 gemmulem -g data.txt -k 3 -f pearson -o results.csv
 ```
 
-Gemmulem computes the **Pearson κ criterion**:
+Gemmule computes the **Pearson κ criterion**:
 
 $$\kappa = \frac{\beta_1(\beta_2 + 3)^2}{4(4\beta_2 - 3\beta_1)(2\beta_2 - 3\beta_1 - 6)}$$
 
@@ -299,4 +299,4 @@ gemmulem -g multivariate.txt -k 3 --multivariate --cov-type diagonal -o results.
 - See all CLI options: [CLI Reference]({% link cli-reference.md %})
 - Explore all distributions: [Distributions]({% link theory/distributions.md %})
 - Check performance numbers: [Benchmarks]({% link benchmarks.md %})
-- Use Gemmulem from C code: [C API Reference]({% link api-reference.md %})
+- Use Gemmule from C code: [C API Reference]({% link api-reference.md %})

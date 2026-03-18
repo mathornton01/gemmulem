@@ -99,7 +99,7 @@ void MakeEMConfig(EMConfig_t* ConfigPtr, struct emsettings* ems);
 void printusage(){
     cout << "                                                                            " << endl;
     cout << "============================================================================" << endl;
-    cout << "|               GEMMULEM (Version 2.0) Thornton & Park                    |" << endl;
+    cout << "|               Gemmule (Version 2.0) Thornton & Park                     |" << endl;
     cout << "|   General Mixed-Family Expectation Maximization  --  (HELP)             |" << endl;
     cout << "|                                                                          |" << endl;
     cout << "| INPUT / OUTPUT                                                           |" << endl;
@@ -295,7 +295,7 @@ int main(int argc, char** argv)
 {
 
     cout <<
-         "                         (GEMMULEM)                         " << endl <<
+         "                         (Gemmule)                          " << endl <<
          "      General Mixed Multinomial Expectation Maximization    " << endl <<
          "              Micah Thornton & Chanhee Park (2022-2026)     " << endl <<
          "                        [Version 2.0]                       " << endl << endl;
@@ -304,10 +304,10 @@ int main(int argc, char** argv)
     struct emsettings ems = parseargs(argc, argv);
 
     if (ems.verbose){
-        cout << "INFO: User Settings - Running GEMMULEM in Verbose Mode (-v)" << endl;
+        cout << "INFO: User Settings - Running Gemmule in Verbose Mode (-v)" << endl;
         if (ems.ifilename != ""){
             if (ifstream(ems.ifilename).is_open()){
-                cout << "INFO: User Settings - Running GEMMULEM in Multinomial De-Coarsening Mode, reading compatibility count input. " << endl;
+                cout << "INFO: User Settings - Running Gemmule in Multinomial De-Coarsening Mode, reading compatibility count input. " << endl;
                 cout << "INFO: File IO - (Pattern File -i), Parsing Input File " << ems.ifilename << "." << endl;
             } else {
                 cout << "ERROR: File IO - (" << ems.ifilename << ") Not Found Please specify a different file location." << endl << endl << endl;
@@ -398,7 +398,7 @@ int main(int argc, char** argv)
         /* Fall through to UnmixGeneric dispatch below (line ~611) */
     } else if (ems.type == "EM") {
         if (ems.verbose){
-            cout << "INFO: User Settings - Running GEMMULEM in Univariate Exponential Deconvolution Mode, reading univariate normal values. " << endl;
+            cout << "INFO: User Settings - Running Gemmule in Univariate Exponential Deconvolution Mode, reading univariate normal values. " << endl;
             cout << "INFO: File IO - " << to_string(umv.size()) << " values read from file. " << endl;
         }
 
@@ -606,6 +606,22 @@ int main(int argc, char** argv)
                     cout << "  p" << p << "=" << result.params[j].p[p];
                 cout << endl;
             }
+            /* Write CSV output */
+            if (!ems.ofilename.empty()) {
+                ofstream ofile(ems.ofilename);
+                if (ofile.is_open()) {
+                    ofile << "# Gemmule streaming EM output" << endl;
+                    ofile << "# Family: " << df->name << ", k=" << result.num_components << endl;
+                    ofile << "# LL=" << result.loglikelihood << "  BIC=" << result.bic << endl;
+                    for (int j = 0; j < result.num_components; j++) {
+                        ofile << result.mixing_weights[j];
+                        for (int p = 0; p < df->num_params; p++)
+                            ofile << "," << result.params[j].p[p];
+                        ofile << endl;
+                    }
+                    ofile.close();
+                }
+            }
         } else {
             cerr << "ERROR: Streaming EM failed (rc=" << rc << ")" << endl;
         }
@@ -661,7 +677,7 @@ int main(int argc, char** argv)
 
                 /* Write output file */
                 ofstream of(ems.ofilename);
-                of << "# GEMMULEM Adaptive Result" << endl;
+                of << "# Gemmule Adaptive Result" << endl;
                 of << "# k=" << aResult.num_components
                    << " LL=" << aResult.loglikelihood
                    << " BIC=" << aResult.bic << endl;
@@ -746,9 +762,39 @@ int main(int argc, char** argv)
             else if (dn == "weibull") fam = DIST_WEIBULL;
             else if (dn == "beta") fam = DIST_BETA;
             else if (dn == "uniform") fam = DIST_UNIFORM;
+            else if (dn == "studentt" || dn == "t" || dn == "student-t") fam = DIST_STUDENT_T;
+            else if (dn == "laplace") fam = DIST_LAPLACE;
+            else if (dn == "cauchy") fam = DIST_CAUCHY;
+            else if (dn == "invgaussian" || dn == "invgauss" || dn == "inversegaussian") fam = DIST_INVGAUSS;
+            else if (dn == "rayleigh") fam = DIST_RAYLEIGH;
+            else if (dn == "pareto") fam = DIST_PARETO;
+            else if (dn == "logistic") fam = DIST_LOGISTIC;
+            else if (dn == "gumbel") fam = DIST_GUMBEL;
+            else if (dn == "skewnormal" || dn == "skewnorm") fam = DIST_SKEWNORMAL;
+            else if (dn == "gengaussian" || dn == "gengauss" || dn == "generalizedgaussian") fam = DIST_GENGAUSS;
+            else if (dn == "chisquared" || dn == "chisq" || dn == "chi2") fam = DIST_CHISQ;
+            else if (dn == "f" || dn == "fdist") fam = DIST_F;
+            else if (dn == "loglogistic" || dn == "loglogist") fam = DIST_LOGLOGISTIC;
+            else if (dn == "nakagami") fam = DIST_NAKAGAMI;
+            else if (dn == "levy") fam = DIST_LEVY;
+            else if (dn == "gompertz") fam = DIST_GOMPERTZ;
+            else if (dn == "burr") fam = DIST_BURR;
+            else if (dn == "halfnormal" || dn == "halfnorm") fam = DIST_HALFNORMAL;
+            else if (dn == "maxwell") fam = DIST_MAXWELL;
+            else if (dn == "kumaraswamy" || dn == "kumar") fam = DIST_KUMARASWAMY;
+            else if (dn == "triangular" || dn == "triangle") fam = DIST_TRIANGULAR;
+            else if (dn == "binomial" || dn == "binom") fam = DIST_BINOMIAL;
+            else if (dn == "negbinomial" || dn == "negbinom" || dn == "negativebinomial") fam = DIST_NEGBINOM;
+            else if (dn == "geometric" || dn == "geom") fam = DIST_GEOMETRIC;
+            else if (dn == "zipf") fam = DIST_ZIPF;
+            else if (dn == "kde") fam = DIST_KDE;
             else {
                 cerr << "ERROR: Unknown distribution '" << ems.distname << "'" << endl;
-                cerr << "  Valid: gaussian, exponential, poisson, gamma, lognormal, weibull, beta, uniform" << endl;
+                cerr << "  Valid: gaussian, exponential, poisson, gamma, lognormal, weibull, beta, uniform," << endl;
+                cerr << "         studentt, laplace, cauchy, invgaussian, rayleigh, pareto, logistic, gumbel," << endl;
+                cerr << "         skewnormal, gengaussian, chisquared, f, loglogistic, nakagami, levy," << endl;
+                cerr << "         gompertz, burr, halfnormal, maxwell, kumaraswamy, triangular," << endl;
+                cerr << "         binomial, negbinomial, geometric, zipf, kde" << endl;
                 return 1;
             }
 

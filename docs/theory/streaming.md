@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: Streaming EM
 parent: Theory
@@ -72,7 +72,7 @@ $$\pi_j^{(t+1)} = \bar{N}_j^{(t)} / \sum_\ell \bar{N}_\ell^{(t)}$$
 
 The step-size $\eta_t$ controls the trade-off between memory (large $\eta_t$: forget the past) and stability (small $\eta_t$: incorporate new data slowly).
 
-Gemmulem uses:
+Gemmule uses:
 
 $$\eta_t = (t + 2)^{-0.6}$$
 
@@ -126,7 +126,7 @@ $$T(x) = x, \qquad h(s, N) = \frac{s}{n \cdot N}$$
 
 ## Mini-Batch Streaming
 
-Processing one observation at a time is inefficient due to function call overhead and poor cache utilization. Gemmulem processes mini-batches of size $B$ (default: $B = 512$):
+Processing one observation at a time is inefficient due to function call overhead and poor cache utilization. Gemmule processes mini-batches of size $B$ (default: $B = 512$):
 
 **Mini-batch E-step:** For observations $\{x_{tB}, \ldots, x_{(t+1)B - 1}\}$, compute all responsibilities using the SIMD E-step.
 
@@ -178,7 +178,7 @@ For datasets that fit in RAM but are too slow for batch EM (e.g., $n = 10^7$), r
 gemmulem -g data.txt --streaming --epochs 3 --shuffle -k 5 -o results.csv
 ```
 
-After each epoch, Gemmulem resets $\eta_t$ to a smaller value (warmup-proportional decay) to refine the solution.
+After each epoch, Gemmule resets $\eta_t$ to a smaller value (warmup-proportional decay) to refine the solution.
 
 ---
 
@@ -186,7 +186,7 @@ After each epoch, Gemmulem resets $\eta_t$ to a smaller value (warmup-proportion
 
 ### File I/O in Streaming Mode
 
-Gemmulem reads the file using a **sliding buffer** of 64 KB, parsing one mini-batch at a time. This is compatible with:
+Gemmule reads the file using a **sliding buffer** of 64 KB, parsing one mini-batch at a time. This is compatible with:
 - Regular files (disk-backed)
 - Named pipes: `data_generator | gemmulem --streaming -k 5 -o results.csv`
 - Network streams (via `netcat` or similar)
@@ -194,7 +194,7 @@ Gemmulem reads the file using a **sliding buffer** of 64 KB, parsing one mini-ba
 
 ### Checkpointing
 
-For very long streaming runs, Gemmulem can save sufficient statistics at intervals:
+For very long streaming runs, Gemmule can save sufficient statistics at intervals:
 
 ```bash
 gemmulem -g huge_data.txt --streaming -k 5 --checkpoint 10000 \

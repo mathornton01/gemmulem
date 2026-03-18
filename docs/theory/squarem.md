@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: SQUAREM Acceleration
 parent: Theory
@@ -116,7 +116,7 @@ Each SQUAREM-2 iteration uses **3 EM steps** (steps 1, 2, 10) but achieves **sup
 
 ## Why Gaussian Skips SQUAREM at Low Iteration Counts
 
-Gemmulem applies a heuristic: for the **Gaussian** family, SQUAREM is **not applied for the first 5 EM iterations**.
+Gemmule applies a heuristic: for the **Gaussian** family, SQUAREM is **not applied for the first 5 EM iterations**.
 
 **Reasoning:**
 

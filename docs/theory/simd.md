@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: SIMD & GPU Acceleration
 parent: Theory
@@ -9,7 +9,7 @@ math: true
 # SIMD and GPU Acceleration
 {: .no_toc }
 
-How Gemmulem achieves high throughput in the E-step.
+How Gemmule achieves high throughput in the E-step.
 {: .fs-6 .fw-300 }
 
 ## Table of Contents
@@ -24,7 +24,7 @@ How Gemmulem achieves high throughput in the E-step.
 
 The bottleneck in EM for large datasets is the **E-step**: for every observation $x_i$ and every component $j$, we must evaluate the (log) density $\log f(x_i \mid \theta_j)$ and compute normalized responsibilities. With $n$ observations and $k$ components, this is $O(nk)$ density evaluations per iteration.
 
-Gemmulem accelerates this with:
+Gemmule accelerates this with:
 1. **AVX2 SIMD**: 4 double-precision evaluations per CPU cycle
 2. **SSE2 fallback**: 2 doubles per cycle on older CPUs
 3. **OpenCL GPU kernel**: Massively parallel E-step for large $n$
@@ -108,7 +108,7 @@ When $n > L1_{\text{cache}} / 8$ bytes (typically $n > 4096$ doubles = 32 KB), e
 
 ### Tiled Layout
 
-Gemmulem instead processes the data in **tiles** of $T = 128$ observations:
+Gemmule instead processes the data in **tiles** of $T = 128$ observations:
 
 ```
 Outer loop: tile t = 0..n/T-1
@@ -138,7 +138,7 @@ For $n > 10^5$ and moderate $k$, the E-step is an ideal GPU workload:
 
 ### Kernel Design
 
-Gemmulem's OpenCL E-step kernel assigns one **work-group** per tile of observations:
+Gemmule's OpenCL E-step kernel assigns one **work-group** per tile of observations:
 
 ```c
 __kernel void estep_gaussian(
@@ -185,19 +185,19 @@ The optimal work-group size balances:
 - **Register pressure**: Each work-item uses $k$ registers for `log_joint`
 - **Local memory**: Used for k-specific constants (mu, inv2s2)
 
-Gemmulem uses 256 work-items/group as a default, with auto-tuning at startup.
+Gemmule uses 256 work-items/group as a default, with auto-tuning at startup.
 
 ### M-Step on GPU
 
-After the E-step, the M-step requires **reductions** (computing weighted sums). Gemmulem performs the M-step on the CPU using the GPU-computed responsibilities copied back via `clEnqueueReadBuffer`. For $k \leq 32$ and $n \leq 10^6$, this transfer takes ~5 ms — acceptable since the E-step dominates.
+After the E-step, the M-step requires **reductions** (computing weighted sums). Gemmule performs the M-step on the CPU using the GPU-computed responsibilities copied back via `clEnqueueReadBuffer`. For $k \leq 32$ and $n \leq 10^6$, this transfer takes ~5 ms — acceptable since the E-step dominates.
 
-For very large $k$ or $n$, Gemmulem also provides a GPU M-step kernel using parallel reduction.
+For very large $k$ or $n$, Gemmule also provides a GPU M-step kernel using parallel reduction.
 
 ---
 
 ## Automatic Dispatch
 
-At startup, Gemmulem probes available hardware and selects the fastest backend:
+At startup, Gemmule probes available hardware and selects the fastest backend:
 
 ```
 1. Try GPU (OpenCL):
