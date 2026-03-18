@@ -34,21 +34,11 @@
 /* ── Constants ─────────────────────────────────────────────────────── */
 static const double LOG_2PI = 1.8378770664093453;  /* log(2π) */
 
-/* ── Fast exp approximation via bit-manipulation (Schraudolph 1999) ──
- * Error < 3% — good enough for EM responsibility weights (we normalize anyway).
- * On modern CPUs: ~5 cycles vs ~20 cycles for libm exp. */
-static inline double fast_exp(double x) {
-    if (x < -700.0) return 0.0;
-    if (x >  700.0) return 1e308;
-    /* Schraudolph's trick: exploit IEEE 754 layout */
-    union { double d; long long i; } u;
-    u.i = (long long)(6497320848556798LL * x + 4607182418800017408LL);
-    return u.d;
-}
-
-/* Note: fast_exp is scalar but applied in a tight k-loop where k≤64.
- * The real speedup over libm exp() comes from ~4× shorter latency.
- * AVX2 vectorization of exp() requires a polynomial approximation
+/* Note: We previously used a fast_exp (Schraudolph 1999) approximation here,
+ * but removed it because ~3% error broke EM's monotonic LL guarantee and
+ * caused component collapse on overlapping clusters. Standard exp() is used
+ * throughout — the E-step speed comes from SIMD parallelism, not approximate
+ * math. The exp() calls are in the k-loop (k≤64), not the n-loop.
  * (like SVML or sleef) — out of scope for zero-dependency build. */
 
 /* ── AVX2 path: 4 doubles per register ────────────────────────────── */
