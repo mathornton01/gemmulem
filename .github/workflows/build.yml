@@ -10,7 +10,7 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [ubuntu-22.04, macos-latest]
+        os: [ubuntu-22.04, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -22,7 +22,7 @@ jobs:
           cmake ..
 
       - name: Build
-        run: cmake --build build --config Release
+        run: cmake --build build --config Release -j 2
 
       - name: Run all test suites
         run: cd build && ctest --output-on-failure
@@ -36,51 +36,66 @@ jobs:
           echo "=== CTest results ==="
           ctest --output-on-failure --no-tests=error 2>&1 || true
 
-      - name: CLI smoke test — multinomial
+      - name: Generate smoke test data
+        shell: python3 {0}
         run: |
-          ./build/gemmulem -i extension/R/rgemmulem/inst/extdata/em_tst.csv -t 2>&1 | grep -q "0.999"
-          echo "Multinomial smoke test passed"
-
-      - name: CLI smoke test — Gaussian mixture
-        run: |
-          # Generate test data: two well-separated Gaussians
-          python3 -c "
-          import random; random.seed(42)
-          with open('/tmp/test_gauss.txt','w') as f:
+          import random, os
+          tmp = os.environ.get('RUNNER_TEMP', '/tmp')
+          random.seed(42)
+          with open(os.path.join(tmp, 'test_gauss.txt'), 'w') as f:
               for _ in range(1000): f.write(str(random.gauss(-4,1))+'\n')
               for _ in range(1000): f.write(str(random.gauss(4,1))+'\n')
-          "
-          ./build/gemmulem -g /tmp/test_gauss.txt -d Gaussian -k 2 -o /dev/null
-          echo "Gaussian smoke test passed"
-
-      - name: CLI smoke test — adaptive
-        run: |
-          python3 -c "
-          import random; random.seed(42)
-          with open('/tmp/test_adapt.txt','w') as f:
+          with open(os.path.join(tmp, 'test_adapt.txt'), 'w') as f:
               for _ in range(500): f.write(str(random.gauss(-5,1))+'\n')
               for _ in range(500): f.write(str(random.gauss(5,1))+'\n')
-          "
-          ./build/gemmulem -g /tmp/test_adapt.txt --adaptive --kmethod bic --kmax 4 -o /dev/null
-          echo "Adaptive smoke test passed"
-
-      - name: CLI smoke test — online EM
-        run: |
-          ./build/gemmulem -g /tmp/test_gauss.txt -d Gaussian -k 2 --online --batch-size 256 -o /dev/null
-          echo "Online EM smoke test passed"
-
-      - name: CLI smoke test — streaming
-        run: |
-          ./build/gemmulem -g /tmp/test_gauss.txt -d Gaussian -k 2 --stream --chunk-size 500 --passes 5 -o /dev/null
-          echo "Streaming smoke test passed"
-
-      - name: CLI smoke test — multivariate
-        run: |
-          python3 -c "
-          import random; random.seed(42)
-          with open('/tmp/test_mv.txt','w') as f:
+          with open(os.path.join(tmp, 'test_mv.txt'), 'w') as f:
               for _ in range(500): f.write(f'{random.gauss(-3,1)} {random.gauss(-3,1)}\n')
               for _ in range(500): f.write(f'{random.gauss(3,1)} {random.gauss(3,1)}\n')
-          "
-          ./build/gemmulem -g /tmp/test_mv.txt --mv --dim 2 -k 2 -o /dev/null
-          echo "Multivariate smoke test passed"
+
+      - name: Set binary path
+        id: bin
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            echo "gem=build/Release/gemmulem.exe" >> $GITHUB_OUTPUT
+            echo "null=NUL" >> $GITHUB_OUTPUT
+          else
+            echo "gem=build/gemmulem" >> $GITHUB_OUTPUT
+            echo "null=/dev/null" >> $GITHUB_OUTPUT
+          fi
+
+      - name: CLI smoke test — multinomial
+        shell: bash
+        run: |
+          ${{ steps.bin.outputs.gem }} -i extension/R/rgemmulem/inst/extdata/em_tst.csv -t 2>&1 | grep -q "0.999"
+          echo "✅ Multinomial smoke test passed"
+
+      - name: CLI smoke test — Gaussian mixture
+        shell: bash
+        run: |
+          ${{ steps.bin.outputs.gem }} -g "$RUNNER_TEMP/test_gauss.txt" -d Gaussian -k 2 -o ${{ steps.bin.outputs.null }}
+          echo "✅ Gaussian smoke test passed"
+
+      - name: CLI smoke test — adaptive
+        shell: bash
+        run: |
+          ${{ steps.bin.outputs.gem }} -g "$RUNNER_TEMP/test_adapt.txt" --adaptive --kmethod bic --kmax 4 -o ${{ steps.bin.outputs.null }}
+          echo "✅ Adaptive smoke test passed"
+
+      - name: CLI smoke test — online EM
+        shell: bash
+        run: |
+          ${{ steps.bin.outputs.gem }} -g "$RUNNER_TEMP/test_gauss.txt" -d Gaussian -k 2 --online --batch-size 256 -o ${{ steps.bin.outputs.null }}
+          echo "✅ Online EM smoke test passed"
+
+      - name: CLI smoke test — streaming
+        shell: bash
+        run: |
+          ${{ steps.bin.outputs.gem }} -g "$RUNNER_TEMP/test_gauss.txt" -d Gaussian -k 2 --stream --chunk-size 500 --passes 5 -o ${{ steps.bin.outputs.null }}
+          echo "✅ Streaming smoke test passed"
+
+      - name: CLI smoke test — multivariate
+        shell: bash
+        run: |
+          ${{ steps.bin.outputs.gem }} -g "$RUNNER_TEMP/test_mv.txt" --mv --dim 2 -k 2 -o ${{ steps.bin.outputs.null }}
+          echo "✅ Multivariate smoke test passed"
