@@ -20,8 +20,19 @@ target_include_directories(gemmulem PUBLIC
 
 target_link_libraries(gemmulem em)
 
-# install target
+# Install targets
 install(TARGETS gemmulem DESTINATION bin)
+install(TARGETS em DESTINATION lib)
+install(FILES
+    src/lib/distributions.h
+    src/lib/EM.h
+    src/lib/multivariate.h
+    src/lib/streaming.h
+    src/lib/pearson.h
+    src/lib/gpu_estep.h
+    src/lib/simd_estep.h
+    DESTINATION include/gemmulem
+)
 
 # Tests
 enable_testing()

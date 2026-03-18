@@ -43,7 +43,11 @@ int UnmixStreaming(const char* filename, const StreamConfig* config,
 
     /* First pass: count lines and compute global stats for initialization */
     FILE* fp = fopen(filename, "r");
-    if (!fp) return -3;
+    if (!fp) {
+        free(result->mixing_weights); result->mixing_weights = NULL;
+        free(result->params);         result->params = NULL;
+        return -3;
+    }
 
     size_t total_n = 0;
     double global_sum = 0, global_sum2 = 0;
@@ -60,7 +64,11 @@ int UnmixStreaming(const char* filename, const StreamConfig* config,
     }
     fclose(fp);
 
-    if (total_n == 0) return -4;
+    if (total_n == 0) {
+        free(result->mixing_weights); result->mixing_weights = NULL;
+        free(result->params);         result->params = NULL;
+        return -4;
+    }
 
     double global_mean = global_sum / total_n;
     double global_var = global_sum2 / total_n - global_mean * global_mean;
