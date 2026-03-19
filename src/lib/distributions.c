@@ -41,6 +41,32 @@ DistFunctions pearson_get_dist_functions(void);
 #define PDF_FLOOR 1e-300
 
 /* ====================================================================
+ * Data sanitization: filter Inf/NaN values
+ *
+ * Returns a newly-allocated clean array and sets *clean_n.
+ * Caller must free() the returned pointer.
+ * If no bad values, returns a copy of the original data.
+ * ==================================================================== */
+static double* sanitize_data(const double* data, size_t n, size_t* clean_n) {
+    /* First pass: count finite values */
+    size_t good = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (isfinite(data[i])) good++;
+    }
+    *clean_n = good;
+    if (good == 0) return NULL;
+
+    double* clean = (double*)malloc(sizeof(double) * good);
+    if (!clean) { *clean_n = 0; return NULL; }
+
+    size_t j = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (isfinite(data[i])) clean[j++] = data[i];
+    }
+    return clean;
+}
+
+/* ====================================================================
  * Helper: weighted statistics
  * ==================================================================== */
 static double wt_sum(const double* w, size_t n) {
@@ -1709,6 +1735,19 @@ int UnmixGeneric(const double* data, size_t n, DistFamily family, int k,
 {
     if (!data || n == 0 || k <= 0 || !result) return -1;
 
+    /* Sanitize: filter out Inf/NaN values to prevent crashes in k-means++ */
+    size_t clean_n;
+    double* clean = sanitize_data(data, n, &clean_n);
+    if (!clean || clean_n < (size_t)k) {
+        free(clean);
+        return -1;  /* Not enough finite data points */
+    }
+    int using_clean = (clean_n < n);
+    if (using_clean) {
+        data = clean;
+        n = clean_n;
+    }
+
     /* Single-run strategy: full-data k-means++ init (gauss_init with 10
      * restarts) gives high-quality starting parameters without needing
      * multiple EM restarts.  This is faster AND more accurate than running
@@ -1780,6 +1819,7 @@ int UnmixGeneric(const double* data, size_t n, DistFamily family, int k,
         printf("  [%s] Best of %d restarts (2-phase): LL=%.4f\n",
                GetDistName(family), n_init, best.loglikelihood);
     }
+    free(clean);  /* always safe — sanitize_data always allocates */
     return 0;
 }
 
@@ -2192,6 +2232,14 @@ int SelectBestMixture(const double* data, size_t n,
                       ModelSelectResult* result)
 {
     if (!data || n == 0 || !result) return -1;
+
+    /* Sanitize: filter Inf/NaN */
+    size_t clean_n;
+    double* clean_data = sanitize_data(data, n, &clean_n);
+    if (!clean_data || clean_n < 2) { free(clean_data); return -1; }
+    data = clean_data;
+    n = clean_n;
+
     if (k_min < 1) k_min = 1;
     if (k_max < k_min) k_max = k_min;
 
@@ -2263,6 +2311,7 @@ int SelectBestMixture(const double* data, size_t n,
                GetDistName(result->best_family), result->best_k, result->best_bic);
     }
 
+    free(clean_data);
     return 0;
 }
 
@@ -3022,11 +3071,95 @@ static int adaptive_split_merge(const double* data, size_t n,
         for (int j = 0; j < k; j++) mix_w[j] /= wsum;
     }
 
-    /* Return best model */
+    /* ── Grid search refinement ──────────────────────────────────────
+     *
+     * Split-merge finds the right k but often locks into a sub-optimal
+     * family because it only perturbs within the current family.
+     *
+     * Fix: for the best k found above, try fitting a UNIFORM k-component
+     * model with each candidate family via the standard UnmixGeneric path.
+     * If any single-family model beats the split-merge BIC, adopt it.
+     *
+     * This is cheap: k is already determined, and UnmixGeneric for a
+     * single family is just k-means++ init + EM (no split-merge overhead).
+     *
+     * Candidate families are filtered by data characteristics:
+     *   - Positive-only data → try positive families
+     *   - Bounded [0,1] → try Beta/Kumaraswamy
+     *   - Integer data → try Poisson/NegBinom/Geometric
+     *   - Any data → try symmetric families
+     */
+    {
+        static const DistFamily grid_fams[] = {
+            DIST_GAUSSIAN, DIST_EXPONENTIAL, DIST_GAMMA, DIST_LOGNORMAL,
+            DIST_WEIBULL, DIST_POISSON, DIST_BETA, DIST_LOGISTIC,
+            DIST_LAPLACE, DIST_STUDENT_T, DIST_GUMBEL, DIST_HALFNORMAL,
+            DIST_RAYLEIGH, DIST_INVGAUSS, DIST_CHISQ, DIST_CAUCHY
+        };
+        static const int n_grid = 16;
+
+        /* Try best_k and best_k+1 (in case split-merge stopped too early) */
+        int try_ks[] = { best_k, best_k + 1 };
+        int n_try_k = (best_k + 1 <= k_max) ? 2 : 1;
+
+        if (verbose) printf("\n  Grid search refinement (k=%d..%d):\n",
+                            try_ks[0], try_ks[n_try_k-1]);
+
+        for (int ki = 0; ki < n_try_k; ki++) {
+        int try_k = try_ks[ki];
+        for (int gf = 0; gf < n_grid; gf++) {
+            DistFamily cfam = grid_fams[gf];
+
+            /* Skip families incompatible with data */
+            if (!all_positive && (cfam == DIST_EXPONENTIAL || cfam == DIST_GAMMA ||
+                                  cfam == DIST_LOGNORMAL   || cfam == DIST_WEIBULL ||
+                                  cfam == DIST_HALFNORMAL  || cfam == DIST_RAYLEIGH ||
+                                  cfam == DIST_INVGAUSS    || cfam == DIST_CHISQ)) continue;
+            if (!all_bounded && cfam == DIST_BETA) continue;
+            if (has_nonint  && cfam == DIST_POISSON) continue;
+            if (!all_nonneg && cfam == DIST_POISSON) continue;
+
+            const DistFunctions* df = GetDistFunctions(cfam);
+            if (!df || !df->init_params || !df->estimate) continue;
+
+            /* Run standard EM for this family at try_k */
+            MixtureResult grid_res;
+            int rc = UnmixGeneric(data, n, cfam, try_k, maxiter, rtole, 0, &grid_res);
+            if (rc != 0) continue;
+
+            int gnfree = df->num_params * try_k + try_k - 1;
+            double gbic = compute_bic(grid_res.loglikelihood, gnfree, n);
+
+            if (verbose) {
+                printf("    %-14s k=%d  LL=%.2f  BIC=%.2f%s\n",
+                       df->name, try_k, grid_res.loglikelihood, gbic,
+                       gbic < best_crit ? "  ← NEW BEST" : "");
+            }
+
+            if (gbic < best_crit - 1.0) {
+                best_crit = gbic;
+                best_ll = grid_res.loglikelihood;
+                best_k = grid_res.num_components;
+                for (int j = 0; j < best_k; j++) {
+                    best_mix_w[j] = grid_res.mixing_weights[j];
+                    best_par[j]   = grid_res.params[j];
+                    best_fams[j]  = cfam;
+                }
+            }
+            ReleaseMixtureResult(&grid_res);
+        }
+        } /* end ki loop */
+
+        if (verbose) printf("  Grid search done. Best: %s k=%d BIC=%.2f\n\n",
+                            GetDistName(best_fams[0]), best_k, best_crit);
+    }
+
+    /* Return best model (after grid search refinement) */
     result->num_components = best_k;
     result->loglikelihood = best_ll;
     result->kmethod = kmethod;
     result->iterations = outer_iter;
+
     int nfree = count_free_params(best_fams, best_k);
     result->bic = compute_bic(best_ll, nfree, n);
     result->aic = compute_aic(best_ll, nfree);
@@ -3242,15 +3375,25 @@ int UnmixAdaptiveEx(const double* data, size_t n,
     if (maxiter <= 0) maxiter = 300;
     init_dist_table();
 
+    /* Sanitize: filter Inf/NaN */
+    size_t clean_n;
+    double* clean = sanitize_data(data, n, &clean_n);
+    if (!clean || clean_n < 2) { free(clean); return -1; }
+    data = clean;
+    n = clean_n;
+
     if (verbose) {
         printf("INFO: Adaptive mode — k-selection method: %s\n", GetKMethodName(kmethod));
     }
 
+    int rc;
     if (kmethod == KMETHOD_VBEM) {
-        return adaptive_vbem(data, n, k_max, maxiter, rtole, verbose, result);
+        rc = adaptive_vbem(data, n, k_max, maxiter, rtole, verbose, result);
     } else {
-        return adaptive_split_merge(data, n, k_max, maxiter, rtole, verbose, kmethod, result);
+        rc = adaptive_split_merge(data, n, k_max, maxiter, rtole, verbose, kmethod, result);
     }
+    free(clean);
+    return rc;
 }
 
 int UnmixAdaptive(const double* data, size_t n,
@@ -3317,14 +3460,22 @@ int SpectralInit(const double* data, size_t n, int k,
                  double* out_means, double* out_weights)
 {
     if (!data || n == 0 || k <= 0 || !out_means || !out_weights) return -1;
+
+    /* Sanitize: filter Inf/NaN */
+    size_t clean_n;
+    double* clean = sanitize_data(data, n, &clean_n);
+    if (!clean || clean_n < (size_t)k) { free(clean); return -1; }
+    data = clean;
+    n = clean_n;
     if (k == 1) {
         double sum = 0;
         for (size_t i = 0; i < n; i++) sum += data[i];
         out_means[0] = sum / n;
         out_weights[0] = 1.0;
+        free(clean);
         return 0;
     }
-    if ((size_t)k > n) return -2;
+    if ((size_t)k > n) { free(clean); return -2; }
 
     /* Compute empirical moments M_1 through M_{2k} */
     int nm = 2*k + 1;
@@ -3449,6 +3600,7 @@ int SpectralInit(const double* data, size_t n, int k,
     }
 
     free(moments); free(cmoments); free(H); free(eigenvalues); free(eigenvectors);
+    free(clean);
     return 0;
 }
 
@@ -3476,6 +3628,13 @@ int UnmixOnline(const double* data, size_t n, DistFamily family, int k,
                 MixtureResult* result)
 {
     if (!data || n == 0 || k <= 0 || !result) return -1;
+
+    /* Sanitize: filter Inf/NaN */
+    size_t clean_n;
+    double* clean_online = sanitize_data(data, n, &clean_n);
+    if (!clean_online || clean_n < (size_t)k) { free(clean_online); return -1; }
+    data = clean_online;
+    n = clean_n;
     init_dist_table();
 
     const DistFunctions* df = GetDistFunctions(family);
@@ -3620,6 +3779,7 @@ int UnmixOnline(const double* data, size_t n, DistFamily family, int k,
 
     free(suf_w); free(suf_wx); free(suf_wxx);
     free(batch_resp); free(batch_w); free(batch_idx);
+    free(clean_online);
     return 0;
 }
 

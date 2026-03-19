@@ -68,3 +68,8 @@ add_test(NAME adaptive_tests COMMAND test_adaptive)
 add_test(NAME spectral_online_mml_tests COMMAND test_spectral_online_mml)
 add_test(NAME multivariate_tests COMMAND test_multivariate)
 
+add_executable(test_edge_cases Test/test_edge_cases.c)
+target_include_directories(test_edge_cases PRIVATE "${PROJECT_SOURCE_DIR}/src/lib")
+target_link_libraries(test_edge_cases em m)
+add_test(NAME edge_case_tests COMMAND test_edge_cases)
+
