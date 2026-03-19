@@ -1,38 +1,31 @@
-﻿title: Gemmule
-description: General Mixed-Family Expectation Maximization
+title: Gemmule
+description: "The fastest open-source mixture model library. 35 distribution families. Pure C. Zero dependencies."
 theme: just-the-docs
 url: "https://mathornton01.github.io/gemmulem"
 repository: mathornton01/gemmulem
 search_enabled: true
-nav_order: 1
 
 plugins:
   - jekyll-seo-tag
 
-# MathJax support
 markdown: kramdown
 kramdown:
   math_engine: mathjax
 
-# Navigation
 nav_external_links:
-  - title: GitHub Repository
+  - title: GitHub
     url: https://github.com/mathornton01/gemmulem
 
-# Footer
-footer_content: "Copyright &copy; 2024 Micah Thornton. Distributed under the <a href=\"https://opensource.org/licenses/MIT\">MIT license.</a>"
+footer_content: "Copyright &copy; 2022-2026 Micah Thornton & Chanhee Park. GPL v3 License."
 
-# Color scheme
-color_scheme: light
+color_scheme: dark
 
-# Aux links
 aux_links:
-  "GitHub":
+  "⭐ Star on GitHub":
     - "//github.com/mathornton01/gemmulem"
 
 aux_links_new_tab: true
 
-# Callouts
 callouts_level: quiet
 callouts:
   highlight:

@@ -1,16 +1,209 @@
-<script type="text/javascript" async
-  src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js">
-</script>
-<script type="text/x-mathjax-config">
-  MathJax = {
-    tex: {
-      inlineMath: [['$', '$'], ['\\(', '\\)']],
-      displayMath: [['$$', '$$'], ['\\[', '\\]']],
-      packages: {'[+]': ['boldsymbol']},
-      tags: 'ams'
-    },
-    options: {
-      skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre']
-    }
-  };
-</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+<style>
+/* Hero section */
+.hero {
+  text-align: center;
+  padding: 3rem 1rem 2rem;
+  margin: -1rem -1rem 2rem;
+  background: linear-gradient(135deg, #0d1117 0%, #161b22 50%, #1a1e2e 100%);
+  border-bottom: 1px solid #30363d;
+}
+.hero h1 {
+  font-size: 3.5rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, #58a6ff, #bc8cff, #f778ba);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 0.5rem;
+}
+.hero .tagline {
+  font-size: 1.3rem;
+  color: #8b949e;
+  max-width: 600px;
+  margin: 0 auto 1.5rem;
+  line-height: 1.6;
+}
+.hero .badges {
+  margin: 1.5rem 0;
+}
+.hero .badges img {
+  margin: 0 4px;
+}
+
+/* Stats bar */
+.stats-bar {
+  display: flex;
+  justify-content: center;
+  gap: 3rem;
+  padding: 1.5rem 0;
+  flex-wrap: wrap;
+}
+.stat {
+  text-align: center;
+}
+.stat .number {
+  font-size: 2.2rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, #58a6ff, #bc8cff);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.stat .label {
+  font-size: 0.85rem;
+  color: #8b949e;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Feature cards */
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+.feature-card {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 12px;
+  padding: 1.5rem;
+  transition: border-color 0.2s, transform 0.2s;
+}
+.feature-card:hover {
+  border-color: #58a6ff;
+  transform: translateY(-2px);
+}
+.feature-card .icon {
+  font-size: 2rem;
+  margin-bottom: 0.75rem;
+}
+.feature-card h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+  color: #e6edf3;
+}
+.feature-card p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #8b949e;
+  line-height: 1.5;
+}
+
+/* Comparison table */
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.5rem 0;
+  font-size: 0.9rem;
+}
+.comparison-table th {
+  background: #161b22;
+  padding: 0.75rem;
+  text-align: left;
+  border-bottom: 2px solid #30363d;
+  color: #e6edf3;
+}
+.comparison-table td {
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid #21262d;
+}
+.comparison-table tr:hover {
+  background: #161b22;
+}
+.win { color: #3fb950; font-weight: 600; }
+.lose { color: #8b949e; }
+
+/* Install box */
+.install-box {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin: 2rem 0;
+  text-align: center;
+}
+.install-box code {
+  font-size: 1.1rem;
+  color: #58a6ff;
+}
+
+/* Section headers */
+.section-header {
+  text-align: center;
+  margin: 3rem 0 1.5rem;
+}
+.section-header h2 {
+  font-size: 1.8rem;
+  margin-bottom: 0.5rem;
+}
+.section-header p {
+  color: #8b949e;
+  font-size: 1rem;
+}
+
+/* CTA buttons */
+.cta-buttons {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin: 1.5rem 0;
+}
+.cta-btn {
+  display: inline-block;
+  padding: 0.75rem 2rem;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 1rem;
+  text-decoration: none !important;
+  transition: all 0.2s;
+}
+.cta-btn.primary {
+  background: linear-gradient(135deg, #58a6ff, #bc8cff);
+  color: #0d1117 !important;
+}
+.cta-btn.primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(88, 166, 255, 0.4);
+}
+.cta-btn.secondary {
+  background: transparent;
+  border: 1px solid #30363d;
+  color: #e6edf3 !important;
+}
+.cta-btn.secondary:hover {
+  border-color: #58a6ff;
+}
+
+/* Testimonial / code demo */
+.code-demo {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin: 1.5rem 0;
+  overflow-x: auto;
+}
+.code-demo pre {
+  margin: 0;
+  background: transparent !important;
+  border: none !important;
+}
+
+/* Distribution family grid */
+.family-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  margin: 1rem 0;
+}
+.family-pill {
+  background: #21262d;
+  border: 1px solid #30363d;
+  border-radius: 20px;
+  padding: 0.3rem 0.8rem;
+  font-size: 0.8rem;
+  color: #c9d1d9;
+}
+</style>
