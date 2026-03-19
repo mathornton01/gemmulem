@@ -1,11 +1,12 @@
 title: Gemmule
 description: "The fastest open-source mixture model library. 35 distribution families. Pure C. Zero dependencies."
-theme: just-the-docs
+remote_theme: just-the-docs/just-the-docs
 url: "https://mathornton01.github.io/gemmulem"
 repository: mathornton01/gemmulem
 search_enabled: true
 
 plugins:
+  - jekyll-remote-theme
   - jekyll-seo-tag
 
 markdown: kramdown
