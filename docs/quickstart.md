@@ -139,14 +139,16 @@ Other k-selection methods:
 
 ```bash
 # 2D Gaussian mixture, k=3, full covariance
-gemmulem -m data_2d.csv -k 3 --cov full -o result.csv
+gemmulem -g data_2d.csv --mv -k 3 --dim 2 --cov full -o result.csv
 
 # Diagonal covariance (faster)
-gemmulem -m data_2d.csv -k 3 --cov diagonal -o result.csv
+gemmulem -g data_2d.csv --mv -k 3 --dim 2 --cov diagonal -o result.csv
 
 # Auto-detect k with BIC
-gemmulem -m data_2d.csv --mv-auto-k --kmin 1 --kmax 8 -o result.csv
+gemmulem -g data_2d.csv --mv-autok --dim 2 --kmin 1 --kmax 8 -o result.csv
 ```
+
+Note: `-m` sets max iterations, not multivariate mode. Use `--mv` for multivariate.
 
 ---
 
