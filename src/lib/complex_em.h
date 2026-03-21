@@ -139,6 +139,90 @@ int UnmixComplexNonCircular(const double* data, size_t n, int k,
 void ReleaseCNonCircResult(CNonCircMixtureResult* result);
 
 /* ════════════════════════════════════════════════════════════════════
+ * Multivariate complex Gaussian mixture (d-dimensional)
+ * ════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Per-component parameters for multivariate complex Gaussian.
+ * The distribution is f(z|μ,Σ) = (1/(πᵈ det(Σ))) exp(-(z-μ)ᴴ Σ⁻¹ (z-μ))
+ *
+ * Covariance Σ is a d×d Hermitian positive-definite matrix stored as
+ * 2*d*d doubles: cov[2*(i*d+j)] = Re(Σ[i,j]), cov[2*(i*d+j)+1] = Im(Σ[i,j])
+ */
+typedef struct {
+    int dim;
+    double* mean;       /* [2*dim]      interleaved re,im */
+    double* cov;        /* [2*dim*dim]  Hermitian covariance, interleaved re,im */
+    double* cov_chol;   /* [2*dim*dim]  lower Cholesky factor L of Σ = LLᴴ */
+    double  log_det;    /* log det(Σ) = 2 Σᵢ log(L[i,i]) */
+} MVComplexGaussParams;
+
+typedef struct {
+    int num_components;
+    int dim;
+    int iterations;
+    double loglikelihood;
+    double bic, aic;
+    double* mixing_weights;          /* [k] */
+    MVComplexGaussParams* components; /* [k] */
+} MVComplexMixtureResult;
+
+/**
+ * Multivariate complex Gaussian mixture EM.
+ *
+ * Each observation z ∈ ℂᵈ is stored as 2d doubles:
+ *   [re₁, im₁, re₂, im₂, ..., reₐ, imₐ]
+ * Total data array: n × 2d doubles.
+ *
+ * @param data    Row-major n×2d array of interleaved re/im per dimension
+ * @param n       Number of observations
+ * @param d       Complex dimension
+ * @param k       Number of mixture components
+ * @param maxiter Max EM iterations
+ * @param rtole   Relative convergence tolerance
+ * @param verbose Print iteration info
+ * @param result  Output (caller must call ReleaseMVComplexResult)
+ * @return 0 on success, <0 on error
+ */
+int UnmixMVComplex(const double* data, size_t n, int d, int k,
+                   int maxiter, double rtole, int verbose,
+                   MVComplexMixtureResult* result);
+
+void ReleaseMVComplexResult(MVComplexMixtureResult* result);
+
+/* ════════════════════════════════════════════════════════════════════
+ * Streaming Complex EM (Cappé & Moulines online EM)
+ * ════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Configuration for streaming complex EM.
+ * Reads IQ data from a file in chunks — never loads more than chunk_size
+ * complex observations into RAM at once.
+ * Uses Cappé & Moulines (2009) step-size schedule: γₜ = (t + 2)^(-eta_decay)
+ */
+typedef struct {
+    int num_components;
+    int chunk_size;    /* Complex observations per chunk (default 10000) */
+    int max_passes;    /* Passes over the file (default 10) */
+    double rtole;      /* Convergence tolerance (default 1e-5) */
+    int verbose;
+    double eta_decay;  /* Step-size decay exponent ∈ (0.5, 1] (default 0.6) */
+    ComplexGaussType type; /* Only CGAUSS_CIRCULAR supported */
+} ComplexStreamConfig;
+
+/**
+ * Streaming EM for circular complex Gaussian mixture.
+ * File format: one complex observation per line, "re im" or "re,im".
+ *
+ * @param filename  Path to IQ data file
+ * @param config    Streaming configuration
+ * @param result    Output (caller must call ReleaseCCircResult)
+ * @return 0 on success, <0 on error
+ */
+int UnmixComplexStreaming(const char* filename, const ComplexStreamConfig* config,
+                          CCircMixtureResult* result);
+
+/* ════════════════════════════════════════════════════════════════════
  * Utility functions
  * ════════════════════════════════════════════════════════════════════ */
 

@@ -9,6 +9,7 @@
 #include <math.h>
 #include <string.h>
 #include "../src/lib/complex_em.h"
+#include "../src/lib/simd_complex_estep.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -329,6 +330,318 @@ static void test_qpsk_scenario(void) {
 }
 
 
+/* ════════════════════════════════════════════════════════════════════
+ * Feature 1 tests: Multivariate Complex Gaussian
+ * ════════════════════════════════════════════════════════════════════ */
+
+/* Generate d-dimensional circular complex Gaussian samples.
+ * mean: [2*d], cov_chol: lower Cholesky [2*d*d] (complex, stored interleaved).
+ * Output: n*2*d doubles (row-major, interleaved re/im per dim). */
+static void gen_mv_complex(double* data, size_t n, int d,
+                            const double* mean, const double* cov_chol) {
+    for (size_t i = 0; i < n; i++) {
+        /* Generate d independent CN(0,1) and transform */
+        double* z = data + i * 2 * d;
+        double white[64*2]; /* temp: d CN(0,1) samples */
+        for (int dd = 0; dd < d; dd++) {
+            double re, im;
+            box_muller(&re, &im);
+            /* box_muller gives N(0,1); scale to N(0,0.5) for CN(0,1) */
+            white[2*dd]   = re * 0.70710678118654752;  /* 1/sqrt(2) */
+            white[2*dd+1] = im * 0.70710678118654752;
+        }
+        /* Apply lower Cholesky: z = mean + L * white */
+        for (int p = 0; p < d; p++) {
+            double re = mean[2*p], im = mean[2*p+1];
+            for (int q = 0; q <= p; q++) {
+                double lr = cov_chol[2*(p*d+q)];
+                double li = cov_chol[2*(p*d+q)+1];
+                double wr = white[2*q];
+                double wi = white[2*q+1];
+                re += lr*wr - li*wi;
+                im += lr*wi + li*wr;
+            }
+            z[2*p]   = re;
+            z[2*p+1] = im;
+        }
+    }
+}
+
+static void test_mv_complex_cholesky(void) {
+    printf("test_mv_complex_cholesky...\n");
+
+    /* Known 2×2 Hermitian positive-definite matrix:
+     * A = [ 4    2+i ]
+     *     [ 2-i  5   ]
+     * det(A) = 4*5 - (4+1) = 15, positive definite
+     * Expected L:
+     *   L[0,0] = sqrt(4) = 2 (real)
+     *   L[1,0] = (2-i) / 2 = 1 - 0.5i
+     *   L[1,1] = sqrt(5 - |1-0.5i|^2) = sqrt(5 - 1.25) = sqrt(3.75)
+     */
+    /* We test via UnmixMVComplex on trivial data with known covariance */
+    /* Build Cholesky by hand and verify via log_det */
+    double L00 = sqrt(4.0);          /* 2.0 */
+    double L10r = 2.0 / L00;         /* 1.0 */
+    double L10i = -1.0 / L00;        /* -0.5 */
+    double L11 = sqrt(5.0 - (L10r*L10r + L10i*L10i)); /* sqrt(5 - 1.25) */
+    double expected_logdet = 2.0 * (log(L00) + log(L11));
+
+
+    /* Generate data from this distribution and run EM (k=1) */
+    srand(2026);
+    int d = 2;
+    size_t n = 2000;
+    double mean_true[4] = {1.0, 0.5, -0.5, 1.0};
+    double chol_true[8] = {
+        L00, 0.0,   0.0, 0.0,     /* row 0: [L00, 0] */
+        L10r, L10i,  L11, 0.0     /* row 1: [L10, L11] */
+    };
+
+    double* obs = (double*)malloc(n * 2 * d * sizeof(double));
+    gen_mv_complex(obs, n, d, mean_true, chol_true);
+
+    MVComplexMixtureResult result = {0};
+    int ret = UnmixMVComplex(obs, n, d, 1, 200, 1e-8, 0, &result);
+
+    ASSERT(ret == 0, "MV complex Cholesky: EM returns success");
+    ASSERT(result.num_components == 1, "MV complex Cholesky: k=1");
+
+    /* Check that log_det is approximately correct */
+    double got_logdet = result.components[0].log_det;
+    ASSERT_NEAR(got_logdet, expected_logdet, 0.5,
+                "MV complex Cholesky: log_det recovered");
+
+    /* Check mean recovery */
+    ASSERT_NEAR(result.components[0].mean[0], mean_true[0], 0.15, "MV Chol mean[0]");
+    ASSERT_NEAR(result.components[0].mean[1], mean_true[1], 0.15, "MV Chol mean[1]");
+    ASSERT_NEAR(result.components[0].mean[2], mean_true[2], 0.15, "MV Chol mean[2]");
+    ASSERT_NEAR(result.components[0].mean[3], mean_true[3], 0.15, "MV Chol mean[3]");
+
+    ReleaseMVComplexResult(&result);
+    free(obs);
+}
+
+static void test_mv_complex_single(void) {
+    printf("test_mv_complex_single...\n");
+    srand(42);
+
+    int d = 2;
+    size_t n = 3000;
+    double mean_true[4] = {2.0, -1.0, 0.5, 3.0};
+
+    /* Σ = 2*I (diagonal, real) — Cholesky L = sqrt(2)*I */
+    double chol_true[8] = {
+        1.41421356, 0.0,  0.0, 0.0,
+        0.0, 0.0,  1.41421356, 0.0
+    };
+
+    double* obs = (double*)malloc(n * 2 * d * sizeof(double));
+    gen_mv_complex(obs, n, d, mean_true, chol_true);
+
+    MVComplexMixtureResult result = {0};
+    int ret = UnmixMVComplex(obs, n, d, 1, 200, 1e-8, 0, &result);
+
+    ASSERT(ret == 0, "MV single: EM success");
+    ASSERT_NEAR(result.components[0].mean[0], mean_true[0], 0.15, "MV single mean[0]");
+    ASSERT_NEAR(result.components[0].mean[1], mean_true[1], 0.15, "MV single mean[1]");
+    ASSERT_NEAR(result.components[0].mean[2], mean_true[2], 0.15, "MV single mean[2]");
+    ASSERT_NEAR(result.components[0].mean[3], mean_true[3], 0.15, "MV single mean[3]");
+
+    /* Covariance diagonal should be ~2 */
+    ASSERT_NEAR(result.components[0].cov[0], 2.0, 0.4, "MV single cov[0,0].re");
+    ASSERT_NEAR(result.components[0].cov[6], 2.0, 0.4, "MV single cov[1,1].re");
+
+    ReleaseMVComplexResult(&result);
+    free(obs);
+}
+
+static void test_mv_complex_two(void) {
+    printf("test_mv_complex_two...\n");
+    srand(123);
+
+    int d = 2;
+    size_t n1 = 2000, n2 = 2000;
+    size_t n = n1 + n2;
+
+    /* Component 1: mean=(5+2i, 1-3i), Σ = I */
+    double mean1[4] = {5.0, 2.0, 1.0, -3.0};
+    double chol1[8] = { 1,0, 0,0,  0,0, 1,0 };
+
+    /* Component 2: mean=(-5-2i, -1+3i), Σ = I */
+    double mean2[4] = {-5.0, -2.0, -1.0, 3.0};
+    double chol2[8] = { 1,0, 0,0,  0,0, 1,0 };
+
+    double* obs = (double*)malloc(n * 2 * d * sizeof(double));
+    gen_mv_complex(obs,             n1, d, mean1, chol1);
+    gen_mv_complex(obs + n1*2*d,    n2, d, mean2, chol2);
+
+    MVComplexMixtureResult result = {0};
+    int ret = UnmixMVComplex(obs, n, d, 2, 200, 1e-8, 0, &result);
+
+    ASSERT(ret == 0, "MV two: EM success");
+    ASSERT(result.num_components == 2, "MV two: k=2");
+
+    /* Identify components by first mean's real part */
+    int c1 = (result.components[0].mean[0] > 0) ? 0 : 1;
+    int c2 = 1 - c1;
+
+    ASSERT_NEAR(result.components[c1].mean[0],  5.0, 0.3, "MV two c1 mu[0]");
+    ASSERT_NEAR(result.components[c1].mean[1],  2.0, 0.3, "MV two c1 mu[1]");
+    ASSERT_NEAR(result.components[c2].mean[0], -5.0, 0.3, "MV two c2 mu[0]");
+    ASSERT_NEAR(result.components[c2].mean[1], -2.0, 0.3, "MV two c2 mu[1]");
+
+    ASSERT_NEAR(result.mixing_weights[c1], 0.5, 0.05, "MV two weight c1");
+    ASSERT_NEAR(result.mixing_weights[c2], 0.5, 0.05, "MV two weight c2");
+
+    ReleaseMVComplexResult(&result);
+    free(obs);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
+ * Feature 2 test: SIMD E-step vs scalar
+ * ════════════════════════════════════════════════════════════════════ */
+
+static void test_simd_matches_scalar(void) {
+    printf("test_simd_matches_scalar...\n");
+    srand(77);
+
+    size_t n = 2048;
+    int k = 4;
+
+    double* data   = (double*)malloc(2 * n * sizeof(double));
+    double* resp_s = (double*)malloc((size_t)k * n * sizeof(double));
+    double* resp_v = (double*)malloc((size_t)k * n * sizeof(double));
+    double log_w[4], mu_re[4], mu_im[4], var[4];
+
+    /* Generate random parameters and data */
+    for (int j = 0; j < k; j++) {
+        log_w[j] = log(0.25);
+        mu_re[j] = (j % 2 == 0) ? 3.0 : -3.0;
+        mu_im[j] = (j < 2)      ? 3.0 : -3.0;
+        var[j]   = 1.0 + j * 0.5;
+    }
+    for (size_t i = 0; i < n; i++) {
+        double re, im;
+        box_muller(&re, &im);
+        data[2*i]   = re * 2.0 + 1.0;
+        data[2*i+1] = im * 2.0 - 1.0;
+    }
+
+    /* Scalar reference E-step (inline) */
+    double ll_scalar = 0.0;
+    for (size_t i = 0; i < n; i++) {
+        double re_i = data[2*i], im_i = data[2*i+1];
+        double lps[4], mx = -1e30;
+        for (int j = 0; j < k; j++) {
+            double dr = re_i - mu_re[j], di = im_i - mu_im[j];
+            lps[j] = log_w[j] - log(M_PI) - log(var[j]) - (dr*dr+di*di)/var[j];
+            if (lps[j] > mx) mx = lps[j];
+        }
+        double tot = 0;
+        for (int j = 0; j < k; j++) { lps[j] = exp(lps[j]-mx); tot += lps[j]; }
+        ll_scalar += mx + log(tot);
+        for (int j = 0; j < k; j++) resp_s[j*n+i] = lps[j] / tot;
+    }
+
+    /* SIMD E-step */
+    double ll_simd = simd_complex_circular_estep(data, n, log_w, mu_re, mu_im,
+                                                 var, k, resp_v);
+
+    ASSERT_NEAR(ll_simd, ll_scalar, 1e-6, "SIMD LL matches scalar LL");
+
+    /* Check each responsibility */
+    int mismatch = 0;
+    for (int j = 0; j < k && !mismatch; j++) {
+        for (size_t i = 0; i < n && !mismatch; i++) {
+            double diff = fabs(resp_v[j*n+i] - resp_s[j*n+i]);
+            if (diff > 1e-10) {
+                printf("  FAIL at j=%d i=%zu: simd=%.12f scalar=%.12f diff=%.2e\n",
+                       j, i, resp_v[j*n+i], resp_s[j*n+i], diff);
+                mismatch = 1;
+            }
+        }
+    }
+    if (!mismatch) tests_passed++;
+    else           tests_failed++;
+
+    free(data); free(resp_s); free(resp_v);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
+ * Feature 3 test: Streaming Complex EM
+ * ════════════════════════════════════════════════════════════════════ */
+
+static void test_streaming_complex(void) {
+    printf("test_streaming_complex...\n");
+    srand(999);
+
+    /* Write two-component IQ data to a temp file */
+    const char* tmpfile = "/tmp/test_iq_stream.txt";
+    size_t n1 = 3000, n2 = 3000, n = n1 + n2;
+    double mu1_re =  4.0, mu1_im =  2.0, var1 = 1.0;
+    double mu2_re = -4.0, mu2_im = -2.0, var2 = 1.5;
+
+    FILE* fp = fopen(tmpfile, "w");
+    if (!fp) {
+        printf("  SKIP: cannot write to %s\n", tmpfile);
+        tests_passed++;   /* Skip, don't fail */
+        return;
+    }
+
+    /* Generate and write component 1 */
+    double s1 = sqrt(var1 / 2.0);
+    for (size_t i = 0; i < n1; i++) {
+        double re, im;
+        box_muller(&re, &im);
+        fprintf(fp, "%.8f %.8f\n", mu1_re + s1*re, mu1_im + s1*im);
+    }
+    /* Generate and write component 2 */
+    double s2 = sqrt(var2 / 2.0);
+    for (size_t i = 0; i < n2; i++) {
+        double re, im;
+        box_muller(&re, &im);
+        fprintf(fp, "%.8f %.8f\n", mu2_re + s2*re, mu2_im + s2*im);
+    }
+    fclose(fp);
+
+    ComplexStreamConfig cfg = {0};
+    cfg.num_components = 2;
+    cfg.chunk_size  = 500;
+    cfg.max_passes  = 20;
+    cfg.rtole       = 1e-5;
+    cfg.verbose     = 0;
+    cfg.eta_decay   = 0.6;
+    cfg.type        = CGAUSS_CIRCULAR;
+
+    CCircMixtureResult result = {0};
+    int ret = UnmixComplexStreaming(tmpfile, &cfg, &result);
+
+    ASSERT(ret == 0, "Streaming EM returns success");
+    ASSERT(result.num_components == 2, "Streaming: k=2");
+
+    /* Sort by mu_re */
+    int c1 = (result.components[0].mu_re < result.components[1].mu_re) ? 0 : 1;
+    int c2 = 1 - c1;
+
+    ASSERT_NEAR(result.components[c1].mu_re, mu2_re, 0.5, "Streaming c1 mu_re");
+    ASSERT_NEAR(result.components[c1].mu_im, mu2_im, 0.5, "Streaming c1 mu_im");
+    ASSERT_NEAR(result.components[c2].mu_re, mu1_re, 0.5, "Streaming c2 mu_re");
+    ASSERT_NEAR(result.components[c2].mu_im, mu1_im, 0.5, "Streaming c2 mu_im");
+
+    ASSERT_NEAR(result.mixing_weights[c1], 0.5, 0.1, "Streaming weight c1");
+    ASSERT_NEAR(result.mixing_weights[c2], 0.5, 0.1, "Streaming weight c2");
+
+    ReleaseCCircResult(&result);
+    (void)n;   /* suppress unused-variable warning */
+
+    /* Clean up */
+    remove(tmpfile);
+}
+
+
 /* ════════════════════════════════════════════════════════════════════ */
 int main(void) {
     printf("=== Complex EM Tests ===\n\n");
@@ -341,6 +654,17 @@ int main(void) {
     test_noncircular_recovery();
     test_edge_cases();
     test_qpsk_scenario();
+
+    printf("\n--- Feature 1: Multivariate Complex Gaussian ---\n\n");
+    test_mv_complex_cholesky();
+    test_mv_complex_single();
+    test_mv_complex_two();
+
+    printf("\n--- Feature 2: SIMD E-step ---\n\n");
+    test_simd_matches_scalar();
+
+    printf("\n--- Feature 3: Streaming Complex EM ---\n\n");
+    test_streaming_complex();
 
     printf("\n=== Results: %d passed, %d failed ===\n",
            tests_passed, tests_failed);
