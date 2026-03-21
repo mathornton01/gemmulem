@@ -30,6 +30,7 @@
 #include "EM.h"
 #include "distributions.h"
 #include "multivariate.h"
+#include "complex_em.h"
 #include "streaming.h"
 
 using namespace std;
@@ -42,7 +43,7 @@ struct emsettings{
     string type;
     string distname;
     int kmixt;
-    int kmax;
+    int kmax = 0;
     int maxitr;
     bool verbose = false; 
     bool termcat = false;
@@ -60,6 +61,9 @@ struct emsettings{
     int mv_dim = 2;
     CovType cov_type = COV_FULL;
     KMethod kmethod = KMETHOD_BIC;
+    bool complex_circular = false;
+    bool complex_noncircular = false;
+    bool complex_autok = false;
     double rtole;
 };
 struct genesamfile{
@@ -143,6 +147,11 @@ void printusage(){
     cout << "|  --mv-autok              Auto-select k for multivariate mixture         |" << endl;
     cout << "|  --dim          <d>      Dimensionality (auto-detected from data)       |" << endl;
     cout << "|  --cov          <type>   Covariance type: full  diagonal  spherical      |" << endl;
+    cout << "|                                                                          |" << endl;
+    cout << "| COMPLEX-VALUED MODES  (interleaved re,im pairs in -g file)              |" << endl;
+    cout << "|  --complex               Circular symmetric complex Gaussian mixture    |" << endl;
+    cout << "|  --complex-nc            Non-circular complex Gaussian (pseudo-cov)     |" << endl;
+    cout << "|  --complex-autok         Auto-select k for complex circular mixture     |" << endl;
     cout << "|                                                                          |" << endl;
     cout << "| OUTPUT / DISPLAY                                                         |" << endl;
     cout << "|  -v/-V/--VERBO           Verbose: show iteration-by-iteration status    |" << endl;
@@ -250,6 +259,13 @@ struct emsettings parseargs(int argc, char ** argv){
             if (ct == "full") ems.cov_type = COV_FULL;
             else if (ct == "diagonal" || ct == "diag") ems.cov_type = COV_DIAGONAL;
             else if (ct == "spherical" || ct == "sph") ems.cov_type = COV_SPHERICAL;
+        } else if (string(argv[i]) == "--complex"){
+            ems.complex_circular = true;
+        } else if (string(argv[i]) == "--complex-nc" || string(argv[i]) == "--complex-noncircular"){
+            ems.complex_noncircular = true;
+        } else if (string(argv[i]) == "--complex-autok"){
+            ems.complex_circular = true;
+            ems.complex_autok = true;
         }
     }
     if (infile == "" && sfile == "" && gfile == "" && efile == ""){
@@ -438,6 +454,109 @@ int main(int argc, char** argv)
      * --auto
      *    Tries all valid families x k_min..k_max, picks best by BIC
      * ================================================================ */
+    /* ════════════════════════════════════════════════════════════════
+     * COMPLEX-VALUED GAUSSIAN MIXTURE
+     * ════════════════════════════════════════════════════════════════ */
+    if (ems.complex_circular || ems.complex_noncircular) {
+        string datafile = ems.valfilename;
+        if (datafile.empty()) {
+            cerr << "ERROR: Complex mode requires -g <file> (interleaved re,im pairs)" << endl;
+            return 1;
+        }
+        /* Read interleaved re,im pairs: each line = "re im" or "re,im" */
+        vector<double> flat;
+        ifstream cf(datafile);
+        string line;
+        size_t n_complex = 0;
+        while (getline(cf, line)) {
+            if (line.empty() || line[0] == '#') continue;
+            istringstream iss(line);
+            string tok;
+            vector<double> row;
+            while (getline(iss, tok, line.find(',') != string::npos ? ',' : ' ')) {
+                if (!tok.empty()) {
+                    try { row.push_back(stod(tok)); } catch (...) {}
+                }
+            }
+            if (row.size() >= 2) {
+                flat.push_back(row[0]);
+                flat.push_back(row[1]);
+                n_complex++;
+            }
+        }
+        if (n_complex == 0) {
+            cerr << "ERROR: No valid complex data found in " << datafile << endl;
+            return 1;
+        }
+
+        int rc;
+
+        if (ems.complex_noncircular) {
+            cout << "INFO: Non-circular complex Gaussian mixture — n=" << n_complex
+                 << " k=" << ems.kmixt << endl;
+            CNonCircMixtureResult ncr = {0};
+            rc = UnmixComplexNonCircular(flat.data(), n_complex, ems.kmixt,
+                                         ems.maxitr, ems.rtole,
+                                         ems.verbose ? 1 : 0, &ncr);
+            if (rc == 0) {
+                cout << "INFO: Converged in " << ncr.iterations << " iterations" << endl;
+                cout << "INFO: LL=" << ncr.loglikelihood
+                     << "  BIC=" << ncr.bic << "  AIC=" << ncr.aic << endl << endl;
+                for (int j = 0; j < ncr.num_components; j++) {
+                    cout << "Component " << j << ": weight=" << ncr.mixing_weights[j] << endl;
+                    cout << "  mean:    " << ncr.components[j].mu_re
+                         << " + " << ncr.components[j].mu_im << "i" << endl;
+                    cout << "  var:     " << ncr.components[j].cov_re << endl;
+                    cout << "  pseudo:  " << ncr.components[j].pcov_re
+                         << " + " << ncr.components[j].pcov_im << "i" << endl;
+                }
+            }
+            ReleaseCNonCircResult(&ncr);
+        } else if (ems.complex_autok) {
+            int kmax = ems.kmax > 0 ? ems.kmax : 10;
+            cout << "INFO: Complex circular auto-k — n=" << n_complex
+                 << " k_max=" << kmax << endl;
+            CCircMixtureResult cr = {0};
+            rc = UnmixComplexCircularAutoK(flat.data(), n_complex, kmax,
+                                            ems.maxitr, ems.rtole,
+                                            ems.verbose ? 1 : 0, &cr);
+            if (rc == 0) {
+                cout << "INFO: Auto-k selected k=" << cr.num_components
+                     << "  BIC=" << cr.bic << endl;
+                cout << "INFO: LL=" << cr.loglikelihood
+                     << "  AIC=" << cr.aic << endl << endl;
+                for (int j = 0; j < cr.num_components; j++) {
+                    cout << "Component " << j << ": weight=" << cr.mixing_weights[j] << endl;
+                    cout << "  mean: " << cr.components[j].mu_re
+                         << " + " << cr.components[j].mu_im << "i" << endl;
+                    cout << "  var:  " << cr.components[j].var << endl;
+                }
+            }
+            ReleaseCCircResult(&cr);
+        } else {
+            cout << "INFO: Circular complex Gaussian mixture — n=" << n_complex
+                 << " k=" << ems.kmixt << endl;
+            CCircMixtureResult cr = {0};
+            rc = UnmixComplexCircular(flat.data(), n_complex, ems.kmixt,
+                                      ems.maxitr, ems.rtole,
+                                      ems.verbose ? 1 : 0, &cr);
+            if (rc == 0) {
+                cout << "INFO: Converged in " << cr.iterations << " iterations" << endl;
+                cout << "INFO: LL=" << cr.loglikelihood
+                     << "  BIC=" << cr.bic << "  AIC=" << cr.aic << endl << endl;
+                for (int j = 0; j < cr.num_components; j++) {
+                    cout << "Component " << j << ": weight=" << cr.mixing_weights[j] << endl;
+                    cout << "  mean: " << cr.components[j].mu_re
+                         << " + " << cr.components[j].mu_im << "i" << endl;
+                    cout << "  var:  " << cr.components[j].var << endl;
+                }
+            }
+            ReleaseCCircResult(&cr);
+        }
+        if (rc != 0) cerr << "ERROR: Complex EM failed (rc=" << rc << ")" << endl;
+        return rc;
+    }
+
     /* ════════════════════════════════════════════════════════════════
      * MULTIVARIATE GAUSSIAN MIXTURE
      * ════════════════════════════════════════════════════════════════ */

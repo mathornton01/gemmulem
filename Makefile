@@ -11,7 +11,8 @@ OMPFLAG := $(shell echo 'int main(){}' | $(CC) -fopenmp -x c - -o /dev/null 2>/d
 
 SRC_DIR  = src/lib
 SOURCES  = $(SRC_DIR)/EM.c $(SRC_DIR)/distributions.c $(SRC_DIR)/pearson.c \
-           $(SRC_DIR)/multivariate.c $(SRC_DIR)/streaming.c $(SRC_DIR)/simd_estep.c
+           $(SRC_DIR)/multivariate.c $(SRC_DIR)/streaming.c $(SRC_DIR)/simd_estep.c \
+           $(SRC_DIR)/complex_em.c $(SRC_DIR)/vect.c $(SRC_DIR)/gpu_estep.c
 HEADERS  = $(wildcard $(SRC_DIR)/*.h)
 OBJECTS  = $(SOURCES:.c=.o)
 
