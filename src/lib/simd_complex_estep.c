@@ -1,110 +1,119 @@
 /*
  * Copyright 2022-2026, Micah Thornton and Chanhee Park
- * SIMD-accelerated E-step for circular complex Gaussian mixture.
+ * SIMD-accelerated E-step for circular complex Gaussian mixture EM.
  *
- * Each observation zᵢ ∈ ℂ: data[2*i] = Re(zᵢ), data[2*i+1] = Im(zᵢ)
- * log p(zᵢ|j) = log(wⱼ) - log(π) - log(σⱼ²) - |zᵢ-μⱼ|²/σⱼ²
+ * Each observation z is 2 doubles (re, im). Complex circular Gaussian:
+ *   log p(z|μ,σ²) = -log(π) - log(σ²) - |z-μ|²/σ²
  *
- * AVX2 kernel: 2 complex observations per __m256d (4 doubles).
- *   v   = [re₀, im₀, re₁, im₁]
- *   mu  = [μr,  μi,  μr,  μi ]
- *   d   = v - mu  =  [dr₀, di₀, dr₁, di₁]
- *   sq  = d*d      =  [dr₀², di₀², dr₁², di₁²]
- *   hs  = hadd(sq,sq) = [dr₀²+di₀², dr₀²+di₀², dr₁²+di₁², dr₁²+di₁²]
- *   lp  = lc[j] + hs * (-inv_var)   (element 0 → obs 0, element 2 → obs 1)
+ * AVX2 processes 2 complex observations per __m256d register:
+ *   Load [re₀, im₀, re₁, im₁]
+ *   Sub  [μr,  μi,  μr,  μi ]
+ *   Square and hadd to get |dz|² per observation
  *
  * License: GPL v3
  */
 
-#include "simd_complex_estep.h"
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include <float.h>
+#include "simd_complex_estep.h"
 
-/* ── AVX2 via simde ─────────────────────────────────────────────── */
+/* ── AVX2 detection via simde ──────────────────────────────────────── */
 #if defined(__AVX2__) || defined(SIMDE_ENABLE_NATIVE_ALIASES)
-  #define USE_CX_AVX2 1
+  #define USE_AVX2_COMPLEX 1
   #include "simde/x86/avx2.h"
 #endif
 
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
-#endif
+static const double LOG_PI = 1.1447298858494002;  /* log(π) */
 
-/* Cache tile: TILE complex observations at a time.
- * Working set per tile = TILE * k * 8 bytes.  TILE=128, k=8 → 8KB (fits L1). */
-#define CX_TILE 128
+/* ────────────────────────────────────────────────────────────────────
+ * AVX2 path: process 2 complex observations per __m256d
+ * ──────────────────────────────────────────────────────────────────── */
+#ifdef USE_AVX2_COMPLEX
 
-/* ════════════════════════════════════════════════════════════════════
- * AVX2 path
- * ════════════════════════════════════════════════════════════════════ */
-#ifdef USE_CX_AVX2
-
-static double cx_estep_avx2(const double* data, size_t n,
-                             const double* log_w,
-                             const double* mu_re,
-                             const double* mu_im,
-                             const double* var,
-                             int k,
-                             double* resp)
+static double complex_estep_avx2(
+    const double* data, size_t n,
+    const double* log_w,
+    const double* mu_re, const double* mu_im,
+    const double* var, int k,
+    double* resp)
 {
-    /* Per-component constants:
-     *   lc[j]      = log_w[j] - log(π) - log(σⱼ²)
-     *   inv_var[j] = 1 / σⱼ²
+    /* Precompute per-component constants:
+     * lc[j] = log_w[j] - log(π) - log(σ²)
+     * inv_var[j] = 1/σ²
      */
-    double lc[64], inv_var[64];
+    double lc[64], iv[64];
     for (int j = 0; j < k; j++) {
         double v = var[j] > 1e-300 ? var[j] : 1e-300;
-        lc[j]      = log_w[j] - log(M_PI) - log(v);
-        inv_var[j] = 1.0 / v;
+        lc[j] = log_w[j] - LOG_PI - log(v);
+        iv[j] = 1.0 / v;
     }
 
-    /* Stack-allocated tile: tile_lp[t*k + j] = log p(z_{i0+t} | j)   */
-    double tile_lp[CX_TILE * 64];  /* 128 × 64 × 8 = 64 KB — fits stack */
+    /* Cache-tiled: TILE complex observations at a time.
+     * Working set per tile: TILE × k × 8 bytes.
+     * TILE=128, k=8 → 8KB → fits L1 cache. */
+    const size_t TILE = 128;
+    double tile_lp[128 * 64];  /* TILE × k_max */
 
-    double ll   = 0.0;
-    size_t i0   = 0;
+    double ll = 0.0;
+    size_t i0 = 0;
 
-    for (; i0 + (size_t)CX_TILE <= n; i0 += CX_TILE) {
-        const double* xp = data + 2 * i0;   /* pointer to re of obs i0 */
+    for (; i0 + TILE <= n; i0 += TILE) {
+        const double* dp = data + 2 * i0;  /* pointer to start of tile in data */
 
-        /* ── Pass 1: fill tile_lp[t*k+j] for all t, j ── */
+        /* Pass 1: compute log p(z_i | comp j) for each (i, j) in tile */
         for (int j = 0; j < k; j++) {
+            /* Broadcast component parameters:
+             * v_mu = [μ_re, μ_im, μ_re, μ_im] */
             simde__m256d v_mu  = simde_mm256_set_pd(mu_im[j], mu_re[j],
-                                                    mu_im[j], mu_re[j]);
+                                                     mu_im[j], mu_re[j]);
+            simde__m256d v_iv  = simde_mm256_set1_pd(iv[j]);
             simde__m256d v_lc  = simde_mm256_set1_pd(lc[j]);
-            simde__m256d v_niv = simde_mm256_set1_pd(-inv_var[j]);
+            simde__m256d v_neg = simde_mm256_set1_pd(-1.0);
 
-            /* Process 2 complex observations (4 doubles) per AVX2 iter */
+            /* Process 2 observations per iteration (4 doubles = 2 complex) */
+            size_t t2 = TILE - (TILE & 1);  /* round down to even */
             size_t t = 0;
-            size_t t4 = CX_TILE - (CX_TILE & 1);  /* even: always CX_TILE since 128 is even */
-            for (; t < t4; t += 2) {
-                /* xp + 2*t points to [re_t, im_t, re_{t+1}, im_{t+1}] — 4 doubles / 2 obs */
-                simde__m256d v   = simde_mm256_loadu_pd(xp + 2*t);
-                simde__m256d d   = simde_mm256_sub_pd(v, v_mu);
-                simde__m256d sq  = simde_mm256_mul_pd(d, d);
-                /* hadd: [sq[0]+sq[1], sq[0]+sq[1], sq[2]+sq[3], sq[2]+sq[3]]
-                 *        = [|z_t-μ|², |z_t-μ|², |z_{t+1}-μ|², |z_{t+1}-μ|²]  */
-                simde__m256d hs  = simde_mm256_hadd_pd(sq, sq);
-                /* lp = lc[j] + (-inv_var) * dist²  */
-                simde__m256d lp  = simde_mm256_add_pd(v_lc,
-                                   simde_mm256_mul_pd(v_niv, hs));
+            for (; t < t2; t += 2) {
+                /* Load [re_t, im_t, re_{t+1}, im_{t+1}] */
+                simde__m256d z = simde_mm256_loadu_pd(dp + 2*t);
+
+                /* d = z - mu */
+                simde__m256d d = simde_mm256_sub_pd(z, v_mu);
+
+                /* d² = d * d */
+                simde__m256d d2 = simde_mm256_mul_pd(d, d);
+
+                /* hadd pairs within 128-bit lanes:
+                 * d2 = [dr₀², di₀², dr₁², di₁²]
+                 * hadd(d2, d2) = [dr₀²+di₀², dr₀²+di₀², dr₁²+di₁², dr₁²+di₁²]
+                 * We need elements [0] and [2] = |dz₀|² and |dz₁|² */
+                simde__m256d mag2 = simde_mm256_hadd_pd(d2, d2);
+
+                /* log p = lc - |dz|²/σ² = lc + (-1) * mag2 * iv */
+                simde__m256d lp = simde_mm256_add_pd(v_lc,
+                                  simde_mm256_mul_pd(v_neg,
+                                  simde_mm256_mul_pd(mag2, v_iv)));
+
+                /* Extract: hadd puts results at indices [0,1,2,3]
+                 * where [0]=[1] = obs t, [2]=[3] = obs t+1 */
                 double tmp[4];
                 simde_mm256_storeu_pd(tmp, lp);
-                tile_lp[t       * k + j] = tmp[0];   /* obs t   */
-                tile_lp[(t + 1) * k + j] = tmp[2];   /* obs t+1 */
+                tile_lp[t * k + j]       = tmp[0];  /* obs t */
+                tile_lp[(t + 1) * k + j] = tmp[2];  /* obs t+1 */
             }
-            /* Scalar tail (handles odd CX_TILE; currently CX_TILE=128 is even) */
-            for (; t < (size_t)CX_TILE; t++) {
-                double dr = xp[2*t]   - mu_re[j];
-                double di = xp[2*t+1] - mu_im[j];
-                tile_lp[t * k + j] = lc[j] - inv_var[j] * (dr*dr + di*di);
+
+            /* Scalar tail within tile (at most 1 obs) */
+            for (; t < TILE; t++) {
+                double dr = dp[2*t]   - mu_re[j];
+                double di = dp[2*t+1] - mu_im[j];
+                tile_lp[t * k + j] = lc[j] - (dr*dr + di*di) * iv[j];
             }
         }
 
-        /* ── Pass 2: log-sum-exp, normalise, write resp ── */
-        for (size_t t = 0; t < (size_t)CX_TILE; t++) {
+        /* Pass 2: log-sum-exp normalize, write resp (column-major) */
+        for (size_t t = 0; t < TILE; t++) {
             double* row = tile_lp + t * k;
             double mx = row[0];
             for (int j = 1; j < k; j++) if (row[j] > mx) mx = row[j];
@@ -117,15 +126,15 @@ static double cx_estep_avx2(const double* data, size_t n,
         }
     }
 
-    /* ── Scalar tail for remaining < CX_TILE observations ── */
+    /* Scalar tail for remaining < TILE observations */
     for (size_t i = i0; i < n; i++) {
-        double re_i = data[2*i], im_i = data[2*i+1];
+        double re = data[2*i], im = data[2*i+1];
         double lps[64];
         double mx = -1e30;
         for (int j = 0; j < k; j++) {
-            double dr = re_i - mu_re[j];
-            double di = im_i - mu_im[j];
-            lps[j] = lc[j] - inv_var[j] * (dr*dr + di*di);
+            double dr = re - mu_re[j];
+            double di = im - mu_im[j];
+            lps[j] = lc[j] - (dr*dr + di*di) * iv[j];
             if (lps[j] > mx) mx = lps[j];
         }
         double tot = 0.0;
@@ -137,60 +146,61 @@ static double cx_estep_avx2(const double* data, size_t n,
 
     return ll;
 }
-#endif /* USE_CX_AVX2 */
+#endif /* USE_AVX2_COMPLEX */
 
-
-/* ════════════════════════════════════════════════════════════════════
+/* ────────────────────────────────────────────────────────────────────
  * Scalar fallback
- * ════════════════════════════════════════════════════════════════════ */
-static double cx_estep_scalar(const double* data, size_t n,
-                               const double* log_w,
-                               const double* mu_re,
-                               const double* mu_im,
-                               const double* var,
-                               int k,
-                               double* resp)
+ * ──────────────────────────────────────────────────────────────────── */
+static double complex_estep_scalar(
+    const double* data, size_t n,
+    const double* log_w,
+    const double* mu_re, const double* mu_im,
+    const double* var, int k,
+    double* resp)
 {
-    double lc[64], inv_var[64];
+    double lc[64], iv[64];
     for (int j = 0; j < k; j++) {
         double v = var[j] > 1e-300 ? var[j] : 1e-300;
-        lc[j]      = log_w[j] - log(M_PI) - log(v);
-        inv_var[j] = 1.0 / v;
+        lc[j] = log_w[j] - LOG_PI - log(v);
+        iv[j] = 1.0 / v;
     }
 
-    /* Allocate temporary log-prob matrix [n × k] in row-major order */
-    double* lp = (double*)malloc(n * (size_t)k * sizeof(double));
+    /* Row-major lp buffer, then transpose to column-major resp */
+    double* lp = (double*)malloc(sizeof(double) * n * k);
     if (!lp) return -1e30;
 
     for (size_t i = 0; i < n; i++) {
-        double re_i = data[2*i], im_i = data[2*i+1];
+        double re = data[2*i], im = data[2*i+1];
         for (int j = 0; j < k; j++) {
-            double dr = re_i - mu_re[j];
-            double di = im_i - mu_im[j];
-            lp[i*k + j] = lc[j] - inv_var[j] * (dr*dr + di*di);
+            double dr = re - mu_re[j];
+            double di = im - mu_im[j];
+            lp[i*k + j] = lc[j] - (dr*dr + di*di) * iv[j];
         }
     }
 
     double ll = 0.0;
     for (size_t i = 0; i < n; i++) {
-        double* row = lp + i * k;
-        double mx = row[0];
-        for (int j = 1; j < k; j++) if (row[j] > mx) mx = row[j];
+        double mx = lp[i*k];
+        for (int j = 1; j < k; j++) if (lp[i*k+j] > mx) mx = lp[i*k+j];
         double tot = 0.0;
-        for (int j = 0; j < k; j++) { row[j] = exp(row[j] - mx); tot += row[j]; }
+        for (int j = 0; j < k; j++) {
+            double v = exp(lp[i*k+j] - mx);
+            lp[i*k+j] = v;
+            tot += v;
+        }
         ll += mx + log(tot);
         double inv_t = 1.0 / tot;
-        for (int j = 0; j < k; j++) row[j] *= inv_t;
+        for (int j = 0; j < k; j++) lp[i*k+j] *= inv_t;
     }
 
-    /* Transpose from row-major lp[i*k+j] to column-major resp[j*n+i] */
+    /* Blocked transpose: row-major lp[i*k+j] → column-major resp[j*n+i] */
     const size_t BLK = 64;
     for (size_t i0 = 0; i0 < n; i0 += BLK) {
-        size_t ie = (i0 + BLK < n) ? i0 + BLK : n;
+        size_t ie = i0 + BLK < n ? i0 + BLK : n;
         for (int j = 0; j < k; j++) {
-            double* dst = resp + j * n + i0;
-            double* src = lp   + i0 * k + j;
-            for (size_t i = i0; i < ie; i++, src += k, dst++) *dst = *src;
+            for (size_t i = i0; i < ie; i++) {
+                resp[j*n + i] = lp[i*k + j];
+            }
         }
     }
 
@@ -198,21 +208,19 @@ static double cx_estep_scalar(const double* data, size_t n,
     return ll;
 }
 
-
-/* ════════════════════════════════════════════════════════════════════
+/* ────────────────────────────────────────────────────────────────────
  * Public dispatch
- * ════════════════════════════════════════════════════════════════════ */
-double simd_complex_circular_estep(const double* data, size_t n,
-                                   const double* log_w,
-                                   const double* mu_re,
-                                   const double* mu_im,
-                                   const double* var,
-                                   int k,
-                                   double* resp)
+ * ──────────────────────────────────────────────────────────────────── */
+double simd_complex_circular_estep(
+    const double* data, size_t n,
+    const double* log_w,
+    const double* mu_re, const double* mu_im,
+    const double* var, int k,
+    double* resp)
 {
-#ifdef USE_CX_AVX2
-    return cx_estep_avx2(data, n, log_w, mu_re, mu_im, var, k, resp);
+#ifdef USE_AVX2_COMPLEX
+    return complex_estep_avx2(data, n, log_w, mu_re, mu_im, var, k, resp);
 #else
-    return cx_estep_scalar(data, n, log_w, mu_re, mu_im, var, k, resp);
+    return complex_estep_scalar(data, n, log_w, mu_re, mu_im, var, k, resp);
 #endif
 }

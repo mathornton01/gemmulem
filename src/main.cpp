@@ -64,6 +64,9 @@ struct emsettings{
     bool complex_circular = false;
     bool complex_noncircular = false;
     bool complex_autok = false;
+    bool complex_mv = false;
+    int complex_mv_dim = 2;
+    bool complex_streaming = false;
     double rtole;
 };
 struct genesamfile{
@@ -266,6 +269,13 @@ struct emsettings parseargs(int argc, char ** argv){
         } else if (string(argv[i]) == "--complex-autok"){
             ems.complex_circular = true;
             ems.complex_autok = true;
+        } else if (string(argv[i]) == "--complex-mv"){
+            ems.complex_mv = true;
+        } else if (string(argv[i]) == "--complex-mv-dim" && i+1 < argc){
+            ems.complex_mv_dim = stoi(string(argv[++i]));
+        } else if (string(argv[i]) == "--complex-stream"){
+            ems.complex_streaming = true;
+            ems.complex_circular = true;
         }
     }
     if (infile == "" && sfile == "" && gfile == "" && efile == ""){
@@ -457,7 +467,7 @@ int main(int argc, char** argv)
     /* ════════════════════════════════════════════════════════════════
      * COMPLEX-VALUED GAUSSIAN MIXTURE
      * ════════════════════════════════════════════════════════════════ */
-    if (ems.complex_circular || ems.complex_noncircular) {
+    if (ems.complex_circular || ems.complex_noncircular || ems.complex_mv || ems.complex_streaming) {
         string datafile = ems.valfilename;
         if (datafile.empty()) {
             cerr << "ERROR: Complex mode requires -g <file> (interleaved re,im pairs)" << endl;
@@ -491,7 +501,88 @@ int main(int argc, char** argv)
 
         int rc;
 
-        if (ems.complex_noncircular) {
+        if (ems.complex_streaming) {
+            /* Streaming complex EM — write data to temp file if needed */
+            cout << "INFO: Streaming complex circular EM — file=" << datafile
+                 << " k=" << ems.kmixt << endl;
+            ComplexStreamConfig sconf;
+            memset(&sconf, 0, sizeof(sconf));
+            sconf.num_components = ems.kmixt;
+            sconf.chunk_size = ems.stream_chunk;
+            sconf.max_passes = ems.stream_passes;
+            sconf.rtole = ems.rtole;
+            sconf.verbose = ems.verbose ? 1 : 0;
+            sconf.eta_decay = 0.6;
+            sconf.type = CGAUSS_CIRCULAR;
+            CCircMixtureResult cr;
+            memset(&cr, 0, sizeof(cr));
+            rc = UnmixComplexStreaming(datafile.c_str(), &sconf, &cr);
+            if (rc == 0) {
+                cout << "INFO: Streaming EM finished (" << cr.iterations << " steps)" << endl;
+                cout << "INFO: LL=" << cr.loglikelihood
+                     << "  BIC=" << cr.bic << "  AIC=" << cr.aic << endl << endl;
+                for (int j = 0; j < cr.num_components; j++) {
+                    cout << "Component " << j << ": weight=" << cr.mixing_weights[j] << endl;
+                    cout << "  mean: " << cr.components[j].mu_re
+                         << " + " << cr.components[j].mu_im << "i" << endl;
+                    cout << "  var:  " << cr.components[j].var << endl;
+                }
+            }
+            ReleaseCCircResult(&cr);
+        } else if (ems.complex_mv) {
+            /* Multivariate complex Gaussian — data has d complex dims per line */
+            int d = ems.complex_mv_dim;
+            /* Recount: flat has n_complex × 2 doubles, but for MV we need n × 2d */
+            /* Re-read the file to handle multi-dim data */
+            vector<double> mv_flat;
+            size_t n_mv = 0;
+            {
+                ifstream mvf(datafile);
+                string line;
+                while (getline(mvf, line)) {
+                    if (line.empty() || line[0] == '#') continue;
+                    istringstream iss(line);
+                    string tok;
+                    vector<double> row;
+                    while (getline(iss, tok, line.find(',') != string::npos ? ',' : ' ')) {
+                        if (!tok.empty()) {
+                            try { row.push_back(stod(tok)); } catch (...) {}
+                        }
+                    }
+                    if ((int)row.size() >= 2*d) {
+                        for (int dd = 0; dd < 2*d; dd++) mv_flat.push_back(row[dd]);
+                        n_mv++;
+                    }
+                }
+            }
+            if (n_mv == 0) {
+                cerr << "ERROR: No valid MV complex data (need " << 2*d << " values per line)" << endl;
+                return 1;
+            }
+            cout << "INFO: Multivariate complex Gaussian — n=" << n_mv
+                 << " d=" << d << " k=" << ems.kmixt << endl;
+            MVComplexMixtureResult mvr;
+            memset(&mvr, 0, sizeof(mvr));
+            rc = UnmixMVComplex(mv_flat.data(), n_mv, d, ems.kmixt,
+                                ems.maxitr, ems.rtole,
+                                ems.verbose ? 1 : 0, &mvr);
+            if (rc == 0) {
+                cout << "INFO: Converged in " << mvr.iterations << " iterations" << endl;
+                cout << "INFO: LL=" << mvr.loglikelihood
+                     << "  BIC=" << mvr.bic << "  AIC=" << mvr.aic << endl << endl;
+                for (int j = 0; j < mvr.num_components; j++) {
+                    cout << "Component " << j << ": weight=" << mvr.mixing_weights[j] << endl;
+                    cout << "  mean: [";
+                    for (int dd = 0; dd < d; dd++) {
+                        if (dd > 0) cout << ", ";
+                        cout << mvr.components[j].mean[2*dd]
+                             << "+" << mvr.components[j].mean[2*dd+1] << "i";
+                    }
+                    cout << "]" << endl;
+                }
+            }
+            ReleaseMVComplexResult(&mvr);
+        } else if (ems.complex_noncircular) {
             cout << "INFO: Non-circular complex Gaussian mixture — n=" << n_complex
                  << " k=" << ems.kmixt << endl;
             CNonCircMixtureResult ncr = {0};

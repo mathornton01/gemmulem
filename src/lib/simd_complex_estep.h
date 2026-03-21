@@ -1,8 +1,7 @@
 /*
  * Copyright 2022-2026, Micah Thornton and Chanhee Park
  * SIMD-accelerated E-step for circular complex Gaussian mixture EM.
- * Uses AVX2 (2 complex observations per __m256d register) via simde headers.
- * Falls back to scalar when AVX2 unavailable.
+ * Uses AVX2 via simde headers — falls back to scalar when unavailable.
  * License: GPL v3
  */
 #ifndef SIMD_COMPLEX_ESTEP_H
@@ -15,29 +14,29 @@ extern "C" {
 #endif
 
 /*
- * Compute E-step responsibilities for n complex observations, k components.
- * Model: circular complex Gaussian CN(μⱼ, σⱼ²)
- *   log p(zᵢ|j) = log(wⱼ) - log(π) - log(σⱼ²) - |zᵢ-μⱼ|²/σⱼ²
+ * Compute circular complex Gaussian E-step responsibilities.
  *
- * Data layout: interleaved re/im — data[2*i] = Re(zᵢ), data[2*i+1] = Im(zᵢ)
- * resp[j*n + i] = P(component j | zᵢ)  (normalised)
+ * data[2*n]:  interleaved [re₀,im₀, re₁,im₁, ...]
+ * log_w[k]:   log mixing weights
+ * mu_re[k]:   component mean (real part)
+ * mu_im[k]:   component mean (imaginary part)
+ * var[k]:     component variance σ²
+ * resp[k*n]:  output, column-major: resp[j*n+i] = P(comp j | z_i)
+ *
  * Returns total log-likelihood.
  *
- * With AVX2 the inner loop processes 2 complex observations per iteration
- * (4 doubles per __m256d register):
- *   v = [re₀, im₀, re₁, im₁]
- *   d = v - [μr, μi, μr, μi]
- *   sq = d*d  →  hadd → [|z₀-μ|², _, |z₁-μ|², _]
+ * Complex circular Gaussian log-PDF:
+ *   log p(z|μ,σ²) = -log(π) - log(σ²) - |z-μ|²/σ²
  */
 double simd_complex_circular_estep(
-    const double* data,    /* [2*n] interleaved re,im */
+    const double* __restrict__ data,
     size_t n,
-    const double* log_w,   /* [k] log mixing weights */
-    const double* mu_re,   /* [k] */
-    const double* mu_im,   /* [k] */
-    const double* var,     /* [k] variances σⱼ² */
+    const double* __restrict__ log_w,
+    const double* __restrict__ mu_re,
+    const double* __restrict__ mu_im,
+    const double* __restrict__ var,
     int k,
-    double* resp           /* [k*n] output, resp[j*n+i] */
+    double* __restrict__ resp
 );
 
 #ifdef __cplusplus
